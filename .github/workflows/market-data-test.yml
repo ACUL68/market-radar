@@ -20,7 +20,7 @@ jobs:
       - name: Install dependencies
         run: pip install yfinance requests matplotlib
 
-      - name: Test market data, chart, and Telegram
+      - name: Test Western Digital and notify Telegram
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
@@ -32,12 +32,11 @@ jobs:
           import matplotlib.pyplot as plt
 
           symbols = {
-              "Euro Stoxx 50": "^STOXX50E",
-              "DAX": "^GDAXI",
-              "Mercedes-Benz": "MBG.DE",
+              "Western Digital": "WDC",
+              "Nasdaq 100": "^NDX",
           }
 
-          lines = ["✅ MARKET RADAR — TEST DATI + GRAFICO"]
+          lines = ["✅ MARKET RADAR — TEST WESTERN DIGITAL"]
           ok = 0
 
           for name, ticker in symbols.items():
@@ -52,21 +51,24 @@ jobs:
               else:
                   lines.append(f"{name}: dato non disponibile")
 
-          # Grafico 6 mesi Mercedes-Benz, uguale al formato previsto dagli alert reali.
-          hist6 = yf.Ticker("MBG.DE").history(period="6mo", interval="1d", auto_adjust=True)
+          hist6 = yf.Ticker("WDC").history(period="6mo", interval="1d", auto_adjust=True)
           closes6 = hist6["Close"].dropna()
           if len(closes6) < 2:
-              raise RuntimeError("Dati insufficienti per il grafico")
+              raise RuntimeError("Dati insufficienti per il grafico WDC")
+
+          first = float(closes6.iloc[0])
+          last = float(closes6.iloc[-1])
+          sixm = (last / first - 1) * 100
 
           fig, ax = plt.subplots(figsize=(9, 4.8))
           ax.plot(closes6.index, closes6.values, linewidth=1.8)
           ax.scatter([closes6.index[-1]], [closes6.iloc[-1]], s=32)
-          ax.set_title("Mercedes-Benz (MBG.DE) — ultimi 6 mesi")
+          ax.set_title("Western Digital (WDC) — ultimi 6 mesi")
           ax.set_ylabel("Prezzo")
           ax.grid(True, alpha=0.25)
           fig.autofmt_xdate()
           fig.tight_layout()
-          chart_path = "chart_test.png"
+          chart_path = "wdc_chart_test.png"
           fig.savefig(chart_path, dpi=150)
           plt.close(fig)
 
@@ -78,13 +80,14 @@ jobs:
                   f"https://api.telegram.org/bot{token}/sendPhoto",
                   data={
                       "chat_id": chat_id,
-                      "caption": "✅ MARKET RADAR — TEST GRAFICO\nMercedes-Benz — ultimi 6 mesi"
+                      "caption": f"✅ MARKET RADAR — WESTERN DIGITAL\nWDC — grafico ultimi 6 mesi\nPerformance 6 mesi: {sixm:+.2f}%"
                   },
                   files={"photo": f},
                   timeout=45,
               )
           r.raise_for_status()
 
+          lines.append(f"Performance WDC 6 mesi: {sixm:+.2f}%")
           lines.append(f"\nFeed verificati: {ok}/{len(symbols)}")
           r = requests.post(
               f"https://api.telegram.org/bot{token}/sendMessage",

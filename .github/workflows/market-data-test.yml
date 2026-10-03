@@ -1,0 +1,65 @@
+name: Market Data Test
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/market-data-test.yml"
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install yfinance requests
+
+      - name: Test market data and notify Telegram
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          python - <<'PY'
+          import os
+          import requests
+          import yfinance as yf
+
+          symbols = {
+              "Euro Stoxx 50": "^STOXX50E",
+              "DAX": "^GDAXI",
+              "Mercedes-Benz": "MBG.DE",
+          }
+
+          lines = ["✅ MARKET RADAR — TEST DATI"]
+          ok = 0
+
+          for name, ticker in symbols.items():
+              hist = yf.Ticker(ticker).history(period="5d", interval="1d", auto_adjust=True)
+              closes = hist["Close"].dropna() if hist is not None and "Close" in hist else []
+              if len(closes) >= 2:
+                  last = float(closes.iloc[-1])
+                  prev = float(closes.iloc[-2])
+                  chg = (last / prev - 1) * 100
+                  lines.append(f"{name}: {last:.2f} ({chg:+.2f}%)")
+                  ok += 1
+              else:
+                  lines.append(f"{name}: dato non disponibile")
+
+          lines.append(f"\nFeed verificati: {ok}/{len(symbols)}")
+
+          token = os.environ["TELEGRAM_BOT_TOKEN"]
+          chat_id = os.environ["TELEGRAM_CHAT_ID"]
+          r = requests.post(
+              f"https://api.telegram.org/bot{token}/sendMessage",
+              data={"chat_id": chat_id, "text": "\n".join(lines)},
+              timeout=30,
+          )
+          r.raise_for_status()
+          print("\n".join(lines))
+          PY

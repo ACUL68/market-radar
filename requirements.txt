@@ -1,0 +1,5 @@
+openai>=1.66.0
+requests>=2.32.0
+yfinance>=0.2.66
+pandas>=2.2.0
+matplotlib>=3.9.0

@@ -1,0 +1,31 @@
+from __future__ import annotations
+
+import os
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
+
+from radar import run_radar
+
+ROME = ZoneInfo("Europe/Rome")
+SLOTS = [(10, 30), (16, 0), (21, 15)]
+
+
+def due_now() -> bool:
+    if os.getenv("FORCE_SCAN", "0") == "1":
+        return True
+    now = datetime.now(ROME)
+    if now.weekday() >= 5:
+        return False
+    for hour, minute in SLOTS:
+        target = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+        if abs(now - target) <= timedelta(minutes=25):
+            return True
+    return False
+
+
+if __name__ == "__main__":
+    if due_now():
+        run_radar()
+    else:
+        now = datetime.now(ROME).strftime("%Y-%m-%d %H:%M")
+        print(f"Nessuna scansione prevista alle {now} Europe/Rome.")

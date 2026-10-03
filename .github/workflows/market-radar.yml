@@ -1,0 +1,51 @@
+name: Market Radar
+
+on:
+  workflow_dispatch:
+  schedule:
+    # GitHub cron usa UTC. Inseriamo entrambe le ore CET/CEST;
+    # main.py esegue la scansione solo quando Europe/Rome coincide col relativo slot.
+    - cron: '30 8 * * 1-5'
+    - cron: '30 9 * * 1-5'
+    - cron: '0 14 * * 1-5'
+    - cron: '0 15 * * 1-5'
+    - cron: '15 19 * * 1-5'
+    - cron: '15 20 * * 1-5'
+
+jobs:
+  radar:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Restore radar state
+        uses: actions/cache@v4
+        with:
+          path: .radar_state.json
+          key: market-radar-state-${{ github.run_id }}
+          restore-keys: |
+            market-radar-state-
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run Market Radar
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          OPENAI_DISCOVERY_MODEL: gpt-6-luna
+          OPENAI_ANALYSIS_MODEL: gpt-6-sol
+          MAX_CANDIDATES: '4'
+          FORCE_SCAN: ${{ github.event_name == 'workflow_dispatch' && '1' || '0' }}
+        run: python main.py

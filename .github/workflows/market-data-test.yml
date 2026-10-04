@@ -18,9 +18,9 @@ jobs:
           python-version: "3.11"
 
       - name: Install dependencies
-        run: pip install yfinance requests matplotlib
+        run: pip install yfinance requests matplotlib pandas
 
-      - name: Real Nike alert test
+      - name: Historical Boeing replay test
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
@@ -30,78 +30,91 @@ jobs:
           import requests
           import yfinance as yf
           import matplotlib.pyplot as plt
+          import pandas as pd
 
-          def snap(ticker):
-              hist = yf.Ticker(ticker).history(period="5d", interval="1d", auto_adjust=True)
-              closes = hist["Close"].dropna()
-              if len(closes) < 2:
-                  raise RuntimeError(f"Dati insufficienti per {ticker}")
-              last = float(closes.iloc[-1])
-              prev = float(closes.iloc[-2])
-              return last, (last / prev - 1) * 100
+          target_date = pd.Timestamp("2026-09-28")
+          start_6m = pd.Timestamp("2026-03-28")
+          end_fetch = pd.Timestamp("2026-09-29")
 
-          nke_last, nke_chg = snap("NKE")
-          sp_last, sp_chg = snap("^GSPC")
-          rel = nke_chg - sp_chg
+          def history_to_date(ticker, start, end):
+              hist = yf.Ticker(ticker).history(
+                  start=start.strftime("%Y-%m-%d"),
+                  end=end.strftime("%Y-%m-%d"),
+                  interval="1d",
+                  auto_adjust=True
+              )
+              if hist is None or hist.empty:
+                  raise RuntimeError(f"Nessun dato per {ticker}")
+              hist = hist.copy()
+              hist.index = pd.to_datetime(hist.index).tz_localize(None)
+              return hist[hist.index <= target_date]
 
-          hist6 = yf.Ticker("NKE").history(period="6mo", interval="1d", auto_adjust=True)
-          closes6 = hist6["Close"].dropna()
-          if len(closes6) < 2:
-              raise RuntimeError("Dati insufficienti per il grafico NKE")
-          sixm = (float(closes6.iloc[-1]) / float(closes6.iloc[0]) - 1) * 100
+          ba = history_to_date("BA", start_6m, end_fetch)
+          sp = history_to_date("^GSPC", pd.Timestamp("2026-09-20"), end_fetch)
+
+          ba_close = ba["Close"].dropna()
+          sp_close = sp["Close"].dropna()
+          if len(ba_close) < 2 or len(sp_close) < 2:
+              raise RuntimeError("Dati insufficienti per replay storico")
+
+          ba_last = float(ba_close.iloc[-1])
+          ba_prev = float(ba_close.iloc[-2])
+          ba_chg = (ba_last / ba_prev - 1) * 100
+
+          sp_last = float(sp_close.iloc[-1])
+          sp_prev = float(sp_close.iloc[-2])
+          sp_chg = (sp_last / sp_prev - 1) * 100
+
+          rel = ba_chg - sp_chg
+          sixm = (ba_last / float(ba_close.iloc[0]) - 1) * 100
 
           fig, ax = plt.subplots(figsize=(9, 4.8))
-          ax.plot(closes6.index, closes6.values, linewidth=1.8)
-          ax.scatter([closes6.index[-1]], [closes6.iloc[-1]], s=32)
-          ax.set_title("Nike (NKE) — ultimi 6 mesi")
+          ax.plot(ba_close.index, ba_close.values, linewidth=1.8)
+          ax.scatter([ba_close.index[-1]], [ba_close.iloc[-1]], s=32)
+          ax.set_title("Boeing (BA) — 6 mesi fino al 28/09/2026")
           ax.set_ylabel("Prezzo")
           ax.grid(True, alpha=0.25)
           fig.autofmt_xdate()
           fig.tight_layout()
-          chart_path = "nike_real_test.png"
+          chart_path = "boeing_replay_2026-09-28.png"
           fig.savefig(chart_path, dpi=150)
           plt.close(fig)
 
           token = os.environ["TELEGRAM_BOT_TOKEN"]
           chat_id = os.environ["TELEGRAM_CHAT_ID"]
 
-          caption = (
-              "🚨 MARKET RADAR — TEST REALE\n"
-              f"Nike (NKE) — grafico 6 mesi\n"
-              f"Performance 6 mesi: {sixm:+.2f}%"
-          )
           with open(chart_path, "rb") as f:
               r = requests.post(
                   f"https://api.telegram.org/bot{token}/sendPhoto",
-                  data={"chat_id": chat_id, "caption": caption},
+                  data={
+                      "chat_id": chat_id,
+                      "caption": (
+                          "🧪 MARKET RADAR — REPLAY STORICO\n"
+                          "Boeing (BA) — situazione vista come se fossimo al 28/09/2026\n"
+                          f"Performance 6 mesi fino a quel giorno: {sixm:+.2f}%"
+                      )
+                  },
                   files={"photo": f},
                   timeout=45,
               )
           r.raise_for_status()
 
-          alert = (
-              "🚨 MARKET RADAR — NIKE (NKE)\n\n"
-              f"Nike: {nke_last:.2f} ({nke_chg:+.2f}%)\n"
+          msg = (
+              "🧪 MARKET RADAR — REPLAY 28/09/2026\n\n"
+              f"Boeing: {ba_last:.2f} ({ba_chg:+.2f}%)\n"
               f"S&P 500: {sp_last:.2f} ({sp_chg:+.2f}%)\n"
               f"Anomalia relativa: {rel:+.2f} punti\n"
-              f"Performance 6 mesi: {sixm:+.2f}%\n\n"
-              "Causa rilevata: conti e guidance deboli; forte debolezza in Cina e turnaround ancora incerto.\n"
-              "Contesto: soprattutto aziendale, non semplice calo generale del mercato.\n"
-              "Rischi seri: pressione sui ricavi, concorrenza, sconti/promozioni e ristrutturazione ancora lunga.\n\n"
-              "SATURNO: N\n"
-              "Motivo: anomalia importante, ma il calo non appare un semplice storno sano dentro un trend forte. "
-              "Caso da monitorare, non alert prioritario come occasione immediata.\n\n"
-              "Fonti:\n"
-              "Reuters — Nike results/guidance, 1 Oct 2026\n"
-              "Reuters — turnaround concerns, 2 Oct 2026\n\n"
-              "Test dimostrativo: dati di prezzo reali; giudizio finale precompilato finché l'API AI non è attiva."
+              f"Performance BA 6 mesi: {sixm:+.2f}%\n\n"
+              "Questo test usa SOLO prezzi disponibili fino al 28/09/2026, "
+              "così verifichiamo il radar senza guardare il futuro.\n"
+              "Il giudizio AI completo arriverà quando sarà attiva la chiave API."
           )
 
           r = requests.post(
               f"https://api.telegram.org/bot{token}/sendMessage",
-              data={"chat_id": chat_id, "text": alert},
+              data={"chat_id": chat_id, "text": msg},
               timeout=30,
           )
           r.raise_for_status()
-          print(alert)
+          print(msg)
           PY

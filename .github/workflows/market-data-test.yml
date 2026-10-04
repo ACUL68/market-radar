@@ -20,7 +20,7 @@ jobs:
       - name: Install dependencies
         run: pip install yfinance requests matplotlib
 
-      - name: Test Western Digital and notify Telegram
+      - name: Real Nike alert test
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
@@ -31,69 +31,77 @@ jobs:
           import yfinance as yf
           import matplotlib.pyplot as plt
 
-          symbols = {
-              "Western Digital": "WDC",
-              "Nasdaq 100": "^NDX",
-          }
-
-          lines = ["✅ MARKET RADAR — TEST WESTERN DIGITAL"]
-          ok = 0
-
-          for name, ticker in symbols.items():
+          def snap(ticker):
               hist = yf.Ticker(ticker).history(period="5d", interval="1d", auto_adjust=True)
-              closes = hist["Close"].dropna() if hist is not None and "Close" in hist else []
-              if len(closes) >= 2:
-                  last = float(closes.iloc[-1])
-                  prev = float(closes.iloc[-2])
-                  chg = (last / prev - 1) * 100
-                  lines.append(f"{name}: {last:.2f} ({chg:+.2f}%)")
-                  ok += 1
-              else:
-                  lines.append(f"{name}: dato non disponibile")
+              closes = hist["Close"].dropna()
+              if len(closes) < 2:
+                  raise RuntimeError(f"Dati insufficienti per {ticker}")
+              last = float(closes.iloc[-1])
+              prev = float(closes.iloc[-2])
+              return last, (last / prev - 1) * 100
 
-          hist6 = yf.Ticker("WDC").history(period="6mo", interval="1d", auto_adjust=True)
+          nke_last, nke_chg = snap("NKE")
+          sp_last, sp_chg = snap("^GSPC")
+          rel = nke_chg - sp_chg
+
+          hist6 = yf.Ticker("NKE").history(period="6mo", interval="1d", auto_adjust=True)
           closes6 = hist6["Close"].dropna()
           if len(closes6) < 2:
-              raise RuntimeError("Dati insufficienti per il grafico WDC")
-
-          first = float(closes6.iloc[0])
-          last = float(closes6.iloc[-1])
-          sixm = (last / first - 1) * 100
+              raise RuntimeError("Dati insufficienti per il grafico NKE")
+          sixm = (float(closes6.iloc[-1]) / float(closes6.iloc[0]) - 1) * 100
 
           fig, ax = plt.subplots(figsize=(9, 4.8))
           ax.plot(closes6.index, closes6.values, linewidth=1.8)
           ax.scatter([closes6.index[-1]], [closes6.iloc[-1]], s=32)
-          ax.set_title("Western Digital (WDC) — ultimi 6 mesi")
+          ax.set_title("Nike (NKE) — ultimi 6 mesi")
           ax.set_ylabel("Prezzo")
           ax.grid(True, alpha=0.25)
           fig.autofmt_xdate()
           fig.tight_layout()
-          chart_path = "wdc_chart_test.png"
+          chart_path = "nike_real_test.png"
           fig.savefig(chart_path, dpi=150)
           plt.close(fig)
 
           token = os.environ["TELEGRAM_BOT_TOKEN"]
           chat_id = os.environ["TELEGRAM_CHAT_ID"]
 
+          caption = (
+              "🚨 MARKET RADAR — TEST REALE\n"
+              f"Nike (NKE) — grafico 6 mesi\n"
+              f"Performance 6 mesi: {sixm:+.2f}%"
+          )
           with open(chart_path, "rb") as f:
               r = requests.post(
                   f"https://api.telegram.org/bot{token}/sendPhoto",
-                  data={
-                      "chat_id": chat_id,
-                      "caption": f"✅ MARKET RADAR — WESTERN DIGITAL\nWDC — grafico ultimi 6 mesi\nPerformance 6 mesi: {sixm:+.2f}%"
-                  },
+                  data={"chat_id": chat_id, "caption": caption},
                   files={"photo": f},
                   timeout=45,
               )
           r.raise_for_status()
 
-          lines.append(f"Performance WDC 6 mesi: {sixm:+.2f}%")
-          lines.append(f"\nFeed verificati: {ok}/{len(symbols)}")
+          alert = (
+              "🚨 MARKET RADAR — NIKE (NKE)\n\n"
+              f"Nike: {nke_last:.2f} ({nke_chg:+.2f}%)\n"
+              f"S&P 500: {sp_last:.2f} ({sp_chg:+.2f}%)\n"
+              f"Anomalia relativa: {rel:+.2f} punti\n"
+              f"Performance 6 mesi: {sixm:+.2f}%\n\n"
+              "Causa rilevata: conti e guidance deboli; forte debolezza in Cina e turnaround ancora incerto.\n"
+              "Contesto: soprattutto aziendale, non semplice calo generale del mercato.\n"
+              "Rischi seri: pressione sui ricavi, concorrenza, sconti/promozioni e ristrutturazione ancora lunga.\n\n"
+              "SATURNO: N\n"
+              "Motivo: anomalia importante, ma il calo non appare un semplice storno sano dentro un trend forte. "
+              "Caso da monitorare, non alert prioritario come occasione immediata.\n\n"
+              "Fonti:\n"
+              "Reuters — Nike results/guidance, 1 Oct 2026\n"
+              "Reuters — turnaround concerns, 2 Oct 2026\n\n"
+              "Test dimostrativo: dati di prezzo reali; giudizio finale precompilato finché l'API AI non è attiva."
+          )
+
           r = requests.post(
               f"https://api.telegram.org/bot{token}/sendMessage",
-              data={"chat_id": chat_id, "text": "\n".join(lines)},
+              data={"chat_id": chat_id, "text": alert},
               timeout=30,
           )
           r.raise_for_status()
-          print("\n".join(lines))
+          print(alert)
           PY

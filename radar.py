@@ -36,6 +36,11 @@ INDEX_WATCH = {
     "Nikkei 225": "^N225",
 }
 
+ASIA_WATCH = {
+    "Nikkei 225": "^N225",
+    "KOSPI": "^KS11",
+}
+
 ROME = ZoneInfo("Europe/Rome")
 
 
@@ -312,6 +317,100 @@ def send_bond_context(bonds: list[dict[str, Any]]) -> None:
         lines.append(f"\n{b.get('benchmark')}\nMovimento: {b.get('move')}\nPerché conta: {b.get('why')}")
     send_message("\n".join(lines))
 
+
+
+def _analyze_asia_signal(changes: dict[str, float]) -> dict[str, Any]:
+    prompt = f"""
+Sei MARKET RADAR. Devi interpretare un forte movimento della seduta asiatica appena conclusa.
+Non dare consigli di trading. Usa ricerca web e fonti finanziarie recenti e affidabili.
+
+Movimenti verificati:
+{json.dumps(changes, ensure_ascii=False)}
+
+Devi capire:
+- causa principale del movimento;
+- se è un problema locale (Giappone/Corea) oppure potenzialmente globale;
+- se tassi USA, yen, dollaro, Cina, semiconduttori, geopolitica o dati macro stanno contribuendo;
+- se il segnale può ragionevolmente aumentare il rischio di pressione su Europa e USA nella giornata,
+  senza presentarlo come previsione certa.
+
+Restituisci SOLO JSON valido:
+{{
+  "scope": "local|mixed|global|unclear",
+  "cause": "...",
+  "europe_us_risk": "low|medium|high",
+  "why_it_matters": "massimo 450 caratteri, italiano semplice",
+  "confidence": 0,
+  "sources": ["https://..."]
+}}
+"""
+    return _ask_web(ANALYSIS_MODEL, prompt)
+
+
+def run_asia_early_warning() -> None:
+    snaps: dict[str, MarketSnapshot] = {}
+    for name, ticker in ASIA_WATCH.items():
+        snap = market_snapshot(ticker)
+        if snap:
+            snaps[name] = snap
+
+    if len(snaps) < 2:
+        print("Asia Early Warning: dati insufficienti")
+        return
+
+    changes = {name: snap.change_pct for name, snap in snaps.items()}
+    nikkei = changes.get("Nikkei 225", 0.0)
+    kospi = changes.get("KOSPI", 0.0)
+
+    # Cerchiamo soprattutto shock condivisi, non normali oscillazioni giornaliere.
+    strong_red = (
+        (nikkei <= -1.50 and kospi <= -1.50)
+        or (nikkei <= -2.50 and kospi <= -0.50)
+        or (kospi <= -2.50 and nikkei <= -0.50)
+    )
+    strong_green = (
+        (nikkei >= 1.50 and kospi >= 1.50)
+        or (nikkei >= 2.50 and kospi >= 0.50)
+        or (kospi >= 2.50 and nikkei >= 0.50)
+    )
+
+    if not (strong_red or strong_green):
+        print(f"Asia Early Warning: nessun segnale forte {changes}")
+        return
+
+    state = _load_state()
+    avg_move = (nikkei + kospi) / 2.0
+    key = "ASIA_EARLY_WARNING"
+    if should_suppress(key, avg_move, state):
+        print("Asia Early Warning duplicato soppresso")
+        return
+
+    try:
+        analysis = _analyze_asia_signal(changes)
+    except Exception as exc:
+        print(f"Asia Early Warning: analisi AI non disponibile: {exc}")
+        return
+
+    direction = "RISK-OFF" if strong_red else "RISK-ON"
+    sources = analysis.get("sources") or []
+    source_text = "\n".join(f"- {u}" for u in sources[:4])
+
+    body = (
+        f"🌏 MARKET RADAR — ASIA EARLY WARNING ({direction})\n\n"
+        f"Nikkei 225: {nikkei:+.2f}%\n"
+        f"KOSPI: {kospi:+.2f}%\n\n"
+        f"Causa: {analysis.get('cause', 'non chiara')}\n"
+        f"Portata: {str(analysis.get('scope', 'unclear')).upper()}\n"
+        f"Rischio di trasmissione a Europa/USA: {str(analysis.get('europe_us_risk', 'unclear')).upper()}\n\n"
+        f"Perché conta: {analysis.get('why_it_matters', '')}\n"
+        f"Confidenza: {analysis.get('confidence', 'n/d')}%"
+    )
+    if source_text:
+        body += f"\n\nFonti:\n{source_text}"
+
+    send_message(body)
+    mark_alert(key, avg_move, state)
+    _save_state(state)
 
 
 def detect_index_anomaly() -> dict[str, Any] | None:

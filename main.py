@@ -4,10 +4,10 @@ import os
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from radar import run_radar
+from radar import run_asia_early_warning, run_radar
 
 ROME = ZoneInfo("Europe/Rome")
-SLOTS = [(10, 30), (16, 0), (21, 15)]
+SLOTS = [(8, 40), (10, 30), (16, 0), (21, 15)]
 
 
 def due_now() -> bool:
@@ -25,7 +25,11 @@ def due_now() -> bool:
 
 if __name__ == "__main__":
     if due_now():
-        run_radar()
+        now = datetime.now(ROME)
+        if (now.hour, now.minute) < (9, 10) and os.getenv("FORCE_SCAN", "0") != "1":
+            run_asia_early_warning()
+        else:
+            run_radar()
     else:
         now = datetime.now(ROME).strftime("%Y-%m-%d %H:%M")
         print(f"Nessuna scansione prevista alle {now} Europe/Rome.")

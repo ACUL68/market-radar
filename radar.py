@@ -471,10 +471,14 @@ def run_radar() -> None:
     send_bond_context(bonds)
     state = _load_state()
 
-    # Controllo separato delle divergenze tra DAX, Euro Stoxx 50, Nasdaq 100 e S&P 500.
-    # Un indice che si muove in direzione opposta o molto più forte/debole degli altri
-    # genera un alert dedicato, dopo verifica della causa con ricerca web.
-    scan_and_send_index_anomaly(regime, bonds, state)
+    # Controllo delle divergenze tra DAX, Euro Stoxx 50, Nasdaq 100 e S&P 500
+    # una sola volta a fine giornata, vicino alla chiusura USA.
+    now_rome = datetime.now(ROME)
+    run_index_check = os.getenv("FORCE_INDEX_SCAN", "0") == "1" or (21, 0) <= (now_rome.hour, now_rome.minute) <= (22, 5)
+    if run_index_check:
+        scan_and_send_index_anomaly(regime, bonds, state)
+    else:
+        print("Controllo divergenze indici rinviato alla scansione serale.")
 
     sent = 0
 

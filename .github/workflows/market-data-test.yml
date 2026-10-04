@@ -93,7 +93,7 @@ jobs:
               return h[h.index <= TARGET]
 
           index_cache = {}
-          rows = []\n          effective_dates = []
+          rows = []
 
           for ticker, (name, region, index_ticker) in universe.items():
               try:
@@ -101,7 +101,7 @@ jobs:
                   if h is None or len(h["Close"].dropna()) < 2:
                       continue
                   c = h["Close"].dropna()
-                  effective_dates.append(c.index[-1])\n                  stock_last = float(c.iloc[-1])
+                  stock_last = float(c.iloc[-1])
                   stock_prev = float(c.iloc[-2])
                   stock_chg = (stock_last / stock_prev - 1) * 100
 

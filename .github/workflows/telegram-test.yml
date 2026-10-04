@@ -11,22 +11,59 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - name: Send test message
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install OpenAI SDK
+        run: pip install "openai>=1.66.0"
+
+      - name: Test OpenAI API and Telegram
         env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
           python - <<'PY'
-          import os, urllib.parse, urllib.request
+          import os
+          import urllib.parse
+          import urllib.request
+          from openai import OpenAI
+
+          client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
+
+          luna = client.responses.create(
+              model="gpt-6-luna",
+              tools=[{"type": "web_search"}],
+              input=(
+                  "Usa la ricerca web. Trova una sola notizia finanziaria recente e "
+                  "rispondi in italiano in massimo 2 righe iniziando con: LUNA OK —"
+              ),
+          )
+
+          sol = client.responses.create(
+              model="gpt-6-sol",
+              input=(
+                  "Rispondi esattamente con: SOL OK — analisi profonda disponibile"
+              ),
+          )
+
+          text = (
+              "✅ MARKET RADAR — TEST API OPENAI\n\n"
+              + luna.output_text.strip()
+              + "\n"
+              + sol.output_text.strip()
+              + "\n\nChiave API, credito e modelli collegati correttamente."
+          )
+
           token = os.environ["TELEGRAM_BOT_TOKEN"]
           chat_id = os.environ["TELEGRAM_CHAT_ID"]
-          text = "✅ Market Radar collegato correttamente a GitHub."
           data = urllib.parse.urlencode({"chat_id": chat_id, "text": text}).encode()
           req = urllib.request.Request(
               f"https://api.telegram.org/bot{token}/sendMessage",
               data=data,
               method="POST",
           )
-          with urllib.request.urlopen(req, timeout=20) as r:
+          with urllib.request.urlopen(req, timeout=30) as r:
               print(r.read().decode())
           PY

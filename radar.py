@@ -86,7 +86,7 @@ def _ask_web(model: str, prompt: str) -> dict[str, Any]:
 
 
 def discover_market() -> dict[str, Any]:
-    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    today = datetime.now(ROME).strftime("%Y-%m-%d")
     prompt = f"""
 Sei il primo livello di MARKET RADAR. Oggi è {today}.
 Usa la ricerca web e fonti finanziarie recenti e affidabili. Non dare consigli di acquisto o vendita.
@@ -94,7 +94,11 @@ Usa la ricerca web e fonti finanziarie recenti e affidabili. Non dare consigli d
 Obiettivi:
 1) Stabilisci la FASE STRUTTURALE del mercato USA e del mercato europeo: bull, correction, bear oppure uncertain. La fase strutturale riguarda settimane/mesi, NON la sola seduta di oggi. Riporta una motivazione molto breve e fonti recenti.
 2) Trova società quotate USA o Europa di grande capitalizzazione e buona liquidità che OGGI stanno avendo un ribasso forte o chiaramente anomalo rispetto al proprio indice/settore. Non usare una soglia rigida: privilegia anomalie relative. Escludi micro-cap, penny stock e titoli illiquidi.
-3) Controlla anche i benchmark obbligazionari che influenzano i mercati: Treasury USA 10Y, Bund 10Y, BTP 10Y, OAT Francia 10Y, Gilt UK 10Y. Segnala soltanto movimenti davvero rilevanti per il contesto azionario.
+3) Controlla anche i benchmark obbligazionari che influenzano i mercati: Treasury USA 10Y, Bund 10Y, BTP 10Y, OAT Francia 10Y, Gilt UK 10Y.
+   Nei giorni feriali segnala SOLO anomalie che stanno avvenendo nella seduta di OGGI ({today}) o che stanno chiaramente proseguendo/accelerando oggi.
+   Non riproporre come nuovo alert un movimento importante avvenuto solo nella seduta precedente.
+   Nel weekend, invece, puoi usare l'ultima seduta disponibile.
+   Segnala soltanto movimenti davvero rilevanti per il contesto azionario.
 4) Per i ticker azionari usa, quando possibile, il simbolo compatibile con Yahoo Finance (es. GOOGL, MBG.DE, AIR.PA, ISP.MI).
 
 Restituisci SOLO JSON valido con questa struttura:
@@ -104,7 +108,7 @@ Restituisci SOLO JSON valido con questa struttura:
     "europe": {{"phase": "bull|correction|bear|uncertain", "reason": "...", "sources": ["https://..."]}}
   }},
   "bond_context": [
-    {{"benchmark": "US Treasury 10Y", "move": "...", "why": "...", "important": true, "sources": ["https://..."]}}
+    {{"benchmark": "US Treasury 10Y", "observation_date": "YYYY-MM-DD", "move": "...", "why": "...", "important": true, "sources": ["https://..."]}}
   ],
   "equity_candidates": [
     {{
@@ -314,7 +318,8 @@ def send_bond_context(bonds: list[dict[str, Any]]) -> None:
         return
     lines = ["🟦 MARKET RADAR — BOND / TASSI"]
     for b in important[:5]:
-        lines.append(f"\n{b.get('benchmark')}\nMovimento: {b.get('move')}\nPerché conta: {b.get('why')}")
+        date_text = b.get("observation_date") or "data non indicata"
+        lines.append(f"\n{b.get('benchmark')}\nData: {date_text}\nMovimento: {b.get('move')}\nPerché conta: {b.get('why')}")
     send_message("\n".join(lines))
 
 

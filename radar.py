@@ -32,6 +32,8 @@ INDEX_WATCH = {
     "Euro Stoxx 50": "^STOXX50E",
     "Nasdaq 100": "^NDX",
     "S&P 500": "^GSPC",
+    "Russell 2000": "^RUT",
+    "Nikkei 225": "^N225",
 }
 
 ROME = ZoneInfo("Europe/Rome")
@@ -314,57 +316,39 @@ def send_bond_context(bonds: list[dict[str, Any]]) -> None:
 
 def detect_index_anomaly() -> dict[str, Any] | None:
     """
-    Cerca un indice che 'canta fuori dal coro'.
-    Prima dell'apertura USA confronta solo DAX ed Euro Stoxx 50.
-    Dalle 15:45 Europe/Rome usa tutti e quattro gli indici.
+    Cerca un indice che 'canta fuori dal coro' nella fotografia di fine giornata.
+    Include USA, Europa e un benchmark asiatico. Il Nikkei chiude molte ore prima
+    di Wall Street: la sua divergenza è quindi un segnale di contesto globale,
+    non un confronto intraday perfettamente simultaneo.
     """
-    now = datetime.now(ROME)
-    names = ["DAX", "Euro Stoxx 50"]
-    if (now.hour, now.minute) >= (15, 45):
-        names = ["DAX", "Euro Stoxx 50", "Nasdaq 100", "S&P 500"]
-
     snaps: dict[str, MarketSnapshot] = {}
-    for name in names:
-        snap = market_snapshot(INDEX_WATCH[name])
+    for name, ticker in INDEX_WATCH.items():
+        snap = market_snapshot(ticker)
         if snap:
             snaps[name] = snap
 
-    if len(snaps) < 2:
+    if len(snaps) < 4:
         return None
 
     changes = {name: snap.change_pct for name, snap in snaps.items()}
-
-    # Con la sola coppia europea segnaliamo solo una divergenza molto evidente.
-    if len(changes) == 2:
-        a, b = list(changes)
-        gap = abs(changes[a] - changes[b])
-        if gap < 1.50:
-            return None
-        outlier = a if abs(changes[a]) >= abs(changes[b]) else b
-        other = b if outlier == a else a
-        return {
-            "outlier": outlier,
-            "change_pct": changes[outlier],
-            "reference_move_pct": changes[other],
-            "gap_pct_points": changes[outlier] - changes[other],
-            "changes": changes,
-            "mode": "europe_pair",
-        }
 
     best: dict[str, Any] | None = None
     for name, value in changes.items():
         others = [v for n, v in changes.items() if n != name]
         center = median(others)
         gap = value - center
+
         positive_others = sum(v >= 0.30 for v in others)
         negative_others = sum(v <= -0.30 for v in others)
+        majority_needed = max(3, (len(others) // 2) + 1)
+
         opposite_to_majority = (
-            (value <= -0.30 and positive_others >= 2)
-            or (value >= 0.30 and negative_others >= 2)
+            (value <= -0.30 and positive_others >= majority_needed)
+            or (value >= 0.30 and negative_others >= majority_needed)
         )
 
-        # Pochi falsi positivi: direzione opposta + almeno 1 punto di scarto,
-        # oppure divergenza estrema di almeno 1,75 punti.
+        # Pochi falsi positivi: direzione opposta alla maggioranza + almeno
+        # 1 punto di scarto, oppure divergenza estrema di almeno 1,75 punti.
         important = (opposite_to_majority and abs(gap) >= 1.00) or abs(gap) >= 1.75
         if not important:
             continue
@@ -375,13 +359,12 @@ def detect_index_anomaly() -> dict[str, Any] | None:
             "reference_move_pct": center,
             "gap_pct_points": gap,
             "changes": changes,
-            "mode": "global_four",
+            "mode": "global_end_of_day",
         }
         if best is None or abs(candidate["gap_pct_points"]) > abs(best["gap_pct_points"]):
             best = candidate
 
     return best
-
 
 def analyze_index_anomaly(anomaly: dict[str, Any], regime: dict[str, Any],
                           bond_context: list[dict[str, Any]]) -> dict[str, Any]:
@@ -401,6 +384,9 @@ Devi capire PERCHÉ quell'indice si sta muovendo in modo diverso dagli altri.
 Controlla in particolare: tassi e bond, valuta, composizione settoriale dell'indice,
 banche/tecnologia/industria, dati macro, politica fiscale o monetaria,
 geopolitica, trimestrali pesanti e notizie locali.
+Se l'anomalia riguarda il Nikkei 225, ricorda che la seduta asiatica è già chiusa da ore:
+trattala come divergenza del ciclo globale nelle ultime 24 ore, non come confronto intraday simultaneo.
+Se riguarda il Russell 2000, valuta se segnala debolezza/forza delle small cap rispetto alle mega-cap USA.
 
 Restituisci SOLO JSON valido:
 {{
@@ -471,8 +457,8 @@ def run_radar() -> None:
     send_bond_context(bonds)
     state = _load_state()
 
-    # Controllo delle divergenze tra DAX, Euro Stoxx 50, Nasdaq 100 e S&P 500
-    # una sola volta a fine giornata, vicino alla chiusura USA.
+    # Controllo delle divergenze tra DAX, Euro Stoxx 50, Nasdaq 100, S&P 500,
+    # Russell 2000 e Nikkei 225 una sola volta a fine giornata, vicino alla chiusura USA.
     now_rome = datetime.now(ROME)
     run_index_check = os.getenv("FORCE_INDEX_SCAN", "0") == "1" or (21, 0) <= (now_rome.hour, now_rome.minute) <= (22, 5)
     if run_index_check:

@@ -33,7 +33,7 @@ jobs:
           import pandas as pd
 
           # Giorno scelto apposta "a caso" per il replay.
-          TARGET = pd.Timestamp("2026-07-27")
+          TARGET = pd.Timestamp("2026-04-30")
           LOOKBACK_START = TARGET - pd.Timedelta(days=210)
           FETCH_END = TARGET + pd.Timedelta(days=2)
 

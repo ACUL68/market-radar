@@ -89,7 +89,10 @@ def discover_market() -> dict[str, Any]:
     today = datetime.now(ROME).strftime("%Y-%m-%d")
     prompt = f"""
 Sei il primo livello di MARKET RADAR. Oggi è {today}.
-Usa la ricerca web e fonti finanziarie recenti e affidabili. Non dare consigli di acquisto o vendita.
+Usa la ricerca web e fonti finanziarie affidabili PUBBLICATE O AGGIORNATE OGGI ({today}, ora Europe/Rome). Non dare consigli di acquisto o vendita.
+Per gli alert live, NON usare notizie dei giorni precedenti come spiegazione principale del movimento di oggi.
+Una fonte più vecchia può essere usata solo come contesto storico secondario, mai per generare da sola un alert.
+Se non trovi una causa confermata da almeno una fonte di oggi, considera la causa non confermata e non proporre il caso come alert.
 
 Obiettivi:
 1) Stabilisci la FASE STRUTTURALE del mercato USA e del mercato europeo: bull, correction, bear oppure uncertain. La fase strutturale riguarda settimane/mesi, NON la sola seduta di oggi. Riporta una motivazione molto breve e fonti recenti.
@@ -173,7 +176,12 @@ def analyze_candidate(candidate: dict[str, Any], snapshot: MarketSnapshot, index
 
     prompt = f"""
 Sei il secondo livello di MARKET RADAR: un analista che deve decidere se un movimento merita di essere STUDIATO, non se comprare o vendere.
-Usa la ricerca web, fai tutte le verifiche successive che ritieni utili e incrocia più fonti. Se le fonti non concordano, dichiaralo.
+Usa la ricerca web, fai tutte le verifiche successive che ritieni utili e incrocia più fonti.
+Per spiegare il movimento live usa come fonti principali SOLO articoli/pubblicazioni di OGGI, secondo la data Europe/Rome.
+Non attribuire il ribasso di oggi a una notizia vecchia solo perché sembra plausibile.
+Le fonti dei giorni precedenti possono servire soltanto come contesto storico secondario.
+Se non esiste una fonte di oggi che colleghi chiaramente il fatto al movimento, dichiaralo e imposta interesting_to_study=false.
+Se le fonti non concordano, dichiaralo.
 
 CANDIDATO
 Società: {candidate.get('company')}
@@ -327,7 +335,9 @@ def send_bond_context(bonds: list[dict[str, Any]]) -> None:
 def _analyze_asia_signal(changes: dict[str, float]) -> dict[str, Any]:
     prompt = f"""
 Sei MARKET RADAR. Devi interpretare un forte movimento della seduta asiatica appena conclusa.
-Non dare consigli di trading. Usa ricerca web e fonti finanziarie recenti e affidabili.
+Non dare consigli di trading. Usa ricerca web e fonti finanziarie affidabili PUBBLICATE O AGGIORNATE OGGI, secondo la data Europe/Rome.
+Non usare articoli dei giorni precedenti per spiegare il segnale asiatico di oggi, salvo puro contesto storico secondario.
+Se non trovi una fonte di oggi che spieghi il movimento, indica scope="unclear" ed europe_us_risk="low".
 
 Movimenti verificati:
 {json.dumps(changes, ensure_ascii=False)}
@@ -474,7 +484,9 @@ def analyze_index_anomaly(anomaly: dict[str, Any], regime: dict[str, Any],
                           bond_context: list[dict[str, Any]]) -> dict[str, Any]:
     prompt = f"""
 Sei MARKET RADAR. Devi spiegare una divergenza anomala tra i principali indici, non dare consigli di trading.
-Usa ricerca web e fonti finanziarie recenti e affidabili. Incrocia più fonti.
+Usa ricerca web e fonti finanziarie affidabili PUBBLICATE O AGGIORNATE OGGI, secondo la data Europe/Rome. Incrocia più fonti.
+Non spiegare la distonia di oggi con articoli vecchi. Le fonti precedenti possono essere solo contesto secondario.
+Se non trovi una spiegazione supportata da almeno una fonte di oggi, imposta important=false.
 
 Movimenti verificati dal programma:
 {json.dumps(anomaly.get('changes', {}), ensure_ascii=False)}

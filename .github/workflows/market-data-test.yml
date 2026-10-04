@@ -20,7 +20,7 @@ jobs:
       - name: Install dependencies
         run: pip install yfinance requests matplotlib pandas
 
-      - name: Historical Boeing replay test
+      - name: Historical full-market replay
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
@@ -32,82 +32,185 @@ jobs:
           import matplotlib.pyplot as plt
           import pandas as pd
 
-          target_date = pd.Timestamp("2026-09-28")
-          start_6m = pd.Timestamp("2026-03-28")
-          end_fetch = pd.Timestamp("2026-09-29")
+          # Giorno scelto apposta "a caso" per il replay.
+          TARGET = pd.Timestamp("2026-09-17")
+          LOOKBACK_START = TARGET - pd.Timedelta(days=210)
+          FETCH_END = TARGET + pd.Timedelta(days=2)
 
-          def history_to_date(ticker, start, end):
-              hist = yf.Ticker(ticker).history(
+          universe = {
+              # USA
+              "AAPL": ("Apple", "USA", "^GSPC"),
+              "MSFT": ("Microsoft", "USA", "^GSPC"),
+              "NVDA": ("NVIDIA", "USA", "^GSPC"),
+              "GOOGL": ("Alphabet", "USA", "^GSPC"),
+              "AMZN": ("Amazon", "USA", "^GSPC"),
+              "META": ("Meta", "USA", "^GSPC"),
+              "TSLA": ("Tesla", "USA", "^GSPC"),
+              "JPM": ("JPMorgan", "USA", "^GSPC"),
+              "BAC": ("Bank of America", "USA", "^GSPC"),
+              "WMT": ("Walmart", "USA", "^GSPC"),
+              "COST": ("Costco", "USA", "^GSPC"),
+              "HD": ("Home Depot", "USA", "^GSPC"),
+              "DIS": ("Disney", "USA", "^GSPC"),
+              "NFLX": ("Netflix", "USA", "^GSPC"),
+              "BA": ("Boeing", "USA", "^GSPC"),
+              "NKE": ("Nike", "USA", "^GSPC"),
+              "WDC": ("Western Digital", "USA", "^GSPC"),
+              "CRM": ("Salesforce", "USA", "^GSPC"),
+              "ORCL": ("Oracle", "USA", "^GSPC"),
+              "AMD": ("AMD", "USA", "^GSPC"),
+
+              # EUROPA
+              "SAP.DE": ("SAP", "EUROPE", "^STOXX50E"),
+              "SIE.DE": ("Siemens", "EUROPE", "^STOXX50E"),
+              "MBG.DE": ("Mercedes-Benz", "EUROPE", "^STOXX50E"),
+              "BMW.DE": ("BMW", "EUROPE", "^STOXX50E"),
+              "BAS.DE": ("BASF", "EUROPE", "^STOXX50E"),
+              "ALV.DE": ("Allianz", "EUROPE", "^STOXX50E"),
+              "AIR.PA": ("Airbus", "EUROPE", "^STOXX50E"),
+              "MC.PA": ("LVMH", "EUROPE", "^STOXX50E"),
+              "OR.PA": ("L'Oreal", "EUROPE", "^STOXX50E"),
+              "SAN.PA": ("Sanofi", "EUROPE", "^STOXX50E"),
+              "BNP.PA": ("BNP Paribas", "EUROPE", "^STOXX50E"),
+              "ASML.AS": ("ASML", "EUROPE", "^STOXX50E"),
+              "INGA.AS": ("ING", "EUROPE", "^STOXX50E"),
+              "ISP.MI": ("Intesa Sanpaolo", "EUROPE", "^STOXX50E"),
+              "ENI.MI": ("Eni", "EUROPE", "^STOXX50E"),
+              "UCG.MI": ("UniCredit", "EUROPE", "^STOXX50E"),
+          }
+
+          def get_hist(ticker, start, end):
+              h = yf.Ticker(ticker).history(
                   start=start.strftime("%Y-%m-%d"),
                   end=end.strftime("%Y-%m-%d"),
                   interval="1d",
                   auto_adjust=True
               )
-              if hist is None or hist.empty:
-                  raise RuntimeError(f"Nessun dato per {ticker}")
-              hist = hist.copy()
-              hist.index = pd.to_datetime(hist.index).tz_localize(None)
-              return hist[hist.index <= target_date]
+              if h is None or h.empty:
+                  return None
+              h = h.copy()
+              h.index = pd.to_datetime(h.index).tz_localize(None)
+              return h[h.index <= TARGET]
 
-          ba = history_to_date("BA", start_6m, end_fetch)
-          sp = history_to_date("^GSPC", pd.Timestamp("2026-09-20"), end_fetch)
+          index_cache = {}
+          rows = []
 
-          ba_close = ba["Close"].dropna()
-          sp_close = sp["Close"].dropna()
-          if len(ba_close) < 2 or len(sp_close) < 2:
-              raise RuntimeError("Dati insufficienti per replay storico")
+          for ticker, (name, region, index_ticker) in universe.items():
+              try:
+                  h = get_hist(ticker, TARGET - pd.Timedelta(days=10), FETCH_END)
+                  if h is None or len(h["Close"].dropna()) < 2:
+                      continue
+                  c = h["Close"].dropna()
+                  stock_last = float(c.iloc[-1])
+                  stock_prev = float(c.iloc[-2])
+                  stock_chg = (stock_last / stock_prev - 1) * 100
 
-          ba_last = float(ba_close.iloc[-1])
-          ba_prev = float(ba_close.iloc[-2])
-          ba_chg = (ba_last / ba_prev - 1) * 100
+                  if index_ticker not in index_cache:
+                      ih = get_hist(index_ticker, TARGET - pd.Timedelta(days=10), FETCH_END)
+                      ic = ih["Close"].dropna()
+                      index_cache[index_ticker] = (
+                          float(ic.iloc[-1]),
+                          (float(ic.iloc[-1]) / float(ic.iloc[-2]) - 1) * 100
+                      )
 
-          sp_last = float(sp_close.iloc[-1])
-          sp_prev = float(sp_close.iloc[-2])
-          sp_chg = (sp_last / sp_prev - 1) * 100
+                  idx_last, idx_chg = index_cache[index_ticker]
+                  relative = stock_chg - idx_chg
 
-          rel = ba_chg - sp_chg
-          sixm = (ba_last / float(ba_close.iloc[0]) - 1) * 100
+                  rows.append({
+                      "ticker": ticker,
+                      "name": name,
+                      "region": region,
+                      "index": index_ticker,
+                      "stock_last": stock_last,
+                      "stock_chg": stock_chg,
+                      "idx_last": idx_last,
+                      "idx_chg": idx_chg,
+                      "relative": relative,
+                  })
+              except Exception as e:
+                  print(f"skip {ticker}: {e}")
 
-          fig, ax = plt.subplots(figsize=(9, 4.8))
-          ax.plot(ba_close.index, ba_close.values, linewidth=1.8)
-          ax.scatter([ba_close.index[-1]], [ba_close.iloc[-1]], s=32)
-          ax.set_title("Boeing (BA) — 6 mesi fino al 28/09/2026")
-          ax.set_ylabel("Prezzo")
-          ax.grid(True, alpha=0.25)
-          fig.autofmt_xdate()
-          fig.tight_layout()
-          chart_path = "boeing_replay_2026-09-28.png"
-          fig.savefig(chart_path, dpi=150)
-          plt.close(fig)
+          # Soglia volutamente severa: vogliamo pochi alert buoni.
+          candidates = [
+              r for r in rows
+              if r["stock_chg"] <= -4.5 and r["relative"] <= -4.0
+          ]
+          candidates.sort(key=lambda x: x["relative"])
 
           token = os.environ["TELEGRAM_BOT_TOKEN"]
           chat_id = os.environ["TELEGRAM_CHAT_ID"]
 
+          if not candidates:
+              msg = (
+                  "🧪 MARKET RADAR — REPLAY COMPLETO\n"
+                  f"Data: {TARGET.strftime('%d/%m/%Y')}\n\n"
+                  "Nessun alert ha superato la soglia.\n"
+                  "Risultato corretto: il radar resta in silenzio quando non trova anomalie abbastanza forti."
+              )
+              r = requests.post(
+                  f"https://api.telegram.org/bot{token}/sendMessage",
+                  data={"chat_id": chat_id, "text": msg},
+                  timeout=30,
+              )
+              r.raise_for_status()
+              print(msg)
+              raise SystemExit(0)
+
+          best = candidates[0]
+
+          hist6 = get_hist(best["ticker"], LOOKBACK_START, FETCH_END)
+          closes6 = hist6["Close"].dropna()
+          sixm = (float(closes6.iloc[-1]) / float(closes6.iloc[0]) - 1) * 100
+          high6 = float(closes6.max())
+          drawdown = (float(closes6.iloc[-1]) / high6 - 1) * 100
+
+          # Lettura grafica semplice, NON una raccomandazione.
+          trend_note = "trend 6 mesi ancora positivo" if sixm > 0 else "trend 6 mesi debole/negativo"
+          if drawdown < -20:
+              trend_note += ", molto sotto i massimi recenti"
+
+          fig, ax = plt.subplots(figsize=(9, 4.8))
+          ax.plot(closes6.index, closes6.values, linewidth=1.8)
+          ax.scatter([closes6.index[-1]], [closes6.iloc[-1]], s=32)
+          ax.set_title(f"{best['name']} ({best['ticker']}) — 6 mesi fino al {TARGET.strftime('%d/%m/%Y')}")
+          ax.set_ylabel("Prezzo")
+          ax.grid(True, alpha=0.25)
+          fig.autofmt_xdate()
+          fig.tight_layout()
+          chart_path = "historical_full_replay.png"
+          fig.savefig(chart_path, dpi=150)
+          plt.close(fig)
+
+          caption = (
+              "🧪 MARKET RADAR — REPLAY COMPLETO\n"
+              f"{best['name']} ({best['ticker']})\n"
+              f"Grafico 6 mesi fino al {TARGET.strftime('%d/%m/%Y')}\n"
+              f"Performance 6 mesi: {sixm:+.2f}%"
+          )
+
           with open(chart_path, "rb") as f:
               r = requests.post(
                   f"https://api.telegram.org/bot{token}/sendPhoto",
-                  data={
-                      "chat_id": chat_id,
-                      "caption": (
-                          "🧪 MARKET RADAR — REPLAY STORICO\n"
-                          "Boeing (BA) — situazione vista come se fossimo al 28/09/2026\n"
-                          f"Performance 6 mesi fino a quel giorno: {sixm:+.2f}%"
-                      )
-                  },
+                  data={"chat_id": chat_id, "caption": caption},
                   files={"photo": f},
                   timeout=45,
               )
           r.raise_for_status()
 
+          index_name = "S&P 500" if best["index"] == "^GSPC" else "Euro Stoxx 50"
           msg = (
-              "🧪 MARKET RADAR — REPLAY 28/09/2026\n\n"
-              f"Boeing: {ba_last:.2f} ({ba_chg:+.2f}%)\n"
-              f"S&P 500: {sp_last:.2f} ({sp_chg:+.2f}%)\n"
-              f"Anomalia relativa: {rel:+.2f} punti\n"
-              f"Performance BA 6 mesi: {sixm:+.2f}%\n\n"
-              "Questo test usa SOLO prezzi disponibili fino al 28/09/2026, "
-              "così verifichiamo il radar senza guardare il futuro.\n"
-              "Il giudizio AI completo arriverà quando sarà attiva la chiave API."
+              "🚨 MARKET RADAR — ALERT STORICO\n\n"
+              f"Data simulata: {TARGET.strftime('%d/%m/%Y')}\n"
+              f"{best['name']} ({best['ticker']}): {best['stock_last']:.2f} ({best['stock_chg']:+.2f}%)\n"
+              f"{index_name}: {best['idx_last']:.2f} ({best['idx_chg']:+.2f}%)\n"
+              f"Anomalia relativa: {best['relative']:+.2f} punti\n"
+              f"Performance 6 mesi: {sixm:+.2f}%\n"
+              f"Distanza dal massimo 6 mesi: {drawdown:+.2f}%\n\n"
+              f"Lettura grafica: {trend_note}.\n"
+              "SATURNO: Y — l'anomalia supera la soglia e merita approfondimento.\n"
+              "Y significa 'manda l'alert', NON 'compra'.\n\n"
+              f"Candidati che hanno superato il filtro quel giorno: {len(candidates)}\n"
+              "Replay senza guardare dati successivi alla data simulata."
           )
 
           r = requests.post(
@@ -116,5 +219,7 @@ jobs:
               timeout=30,
           )
           r.raise_for_status()
+
+          print("TOP_CANDIDATE", best)
           print(msg)
           PY

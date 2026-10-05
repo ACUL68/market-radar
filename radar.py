@@ -370,58 +370,41 @@ def run_asia_early_warning() -> None:
             snaps[name] = snap
 
     if len(snaps) < 2:
-        print("Asia Early Warning: dati insufficienti")
+        print("Asia signal: dati insufficienti")
         return
 
     changes = {name: snap.change_pct for name, snap in snaps.items()}
     nikkei = changes.get("Nikkei 225", 0.0)
     kospi = changes.get("KOSPI", 0.0)
 
-    # Cerchiamo soprattutto shock condivisi, non normali oscillazioni giornaliere.
-    strong_red = (
-        (nikkei <= -1.50 and kospi <= -1.50)
-        or (nikkei <= -2.50 and kospi <= -0.50)
-        or (kospi <= -2.50 and nikkei <= -0.50)
-    )
-    strong_green = (
-        (nikkei >= 1.50 and kospi >= 1.50)
-        or (nikkei >= 2.50 and kospi >= 0.50)
-        or (kospi >= 2.50 and nikkei >= 0.50)
-    )
-
-    if not (strong_red or strong_green):
-        print(f"Asia Early Warning: nessun segnale forte {changes}")
+    # Il segnale scatta soltanto quando Nikkei e KOSPI confermano
+    # la stessa direzione oltre la soglia dell'1%.
+    if nikkei >= 2.0 and kospi >= 2.0:
+        signal = "ASIA LONG FORTE"
+        key = "ASIA_LONG_FORTE"
+    elif nikkei >= 1.0 and kospi >= 1.0:
+        signal = "ASIA LONG"
+        key = "ASIA_LONG"
+    elif nikkei <= -2.0 and kospi <= -2.0:
+        signal = "ASIA SHORT FORTE"
+        key = "ASIA_SHORT_FORTE"
+    elif nikkei <= -1.0 and kospi <= -1.0:
+        signal = "ASIA SHORT"
+        key = "ASIA_SHORT"
+    else:
+        print(f"Asia signal: nessun setup {changes}")
         return
 
     state = _load_state()
     avg_move = (nikkei + kospi) / 2.0
-    key = "ASIA_EARLY_WARNING"
     if should_suppress(key, avg_move, state):
-        print("Asia Early Warning duplicato soppresso")
+        print(f"Asia signal duplicato soppresso: {signal}")
         return
-
-    try:
-        analysis = _analyze_asia_signal(changes)
-    except Exception as exc:
-        print(f"Asia Early Warning: analisi AI non disponibile: {exc}")
-        return
-
-    direction = "RISK-OFF" if strong_red else "RISK-ON"
-    sources = analysis.get("sources") or []
-    source_text = "\n".join(f"- {u}" for u in sources[:4])
 
     body = (
-        f"🌏 MARKET RADAR — ASIA EARLY WARNING ({direction})\n\n"
-        f"Nikkei 225: {nikkei:+.2f}%\n"
-        f"KOSPI: {kospi:+.2f}%\n\n"
-        f"Causa: {analysis.get('cause', 'non chiara')}\n"
-        f"Portata: {str(analysis.get('scope', 'unclear')).upper()}\n"
-        f"Rischio di trasmissione a Europa/USA: {str(analysis.get('europe_us_risk', 'unclear')).upper()}\n\n"
-        f"Perché conta: {analysis.get('why_it_matters', '')}\n"
-        f"Confidenza: {analysis.get('confidence', 'n/d')}%"
+        f"{signal}\n"
+        f"Nikkei {nikkei:+.2f}% | KOSPI {kospi:+.2f}%"
     )
-    if source_text:
-        body += f"\n\nFonti:\n{source_text}"
 
     send_message(body)
     mark_alert(key, avg_move, state)

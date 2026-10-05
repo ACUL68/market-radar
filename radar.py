@@ -17,7 +17,6 @@ from openai import OpenAI
 
 DISCOVERY_MODEL = os.getenv("OPENAI_DISCOVERY_MODEL", "gpt-6-luna")
 ANALYSIS_MODEL = os.getenv("OPENAI_ANALYSIS_MODEL", "gpt-6-sol")
-MAX_CANDIDATES = int(os.getenv("MAX_CANDIDATES", "4"))
 STATE_FILE = Path(os.getenv("RADAR_STATE_FILE", ".radar_state.json"))
 
 INDEX_BY_REGION = {
@@ -85,51 +84,142 @@ def _ask_web(model: str, prompt: str) -> dict[str, Any]:
     return _extract_json(response.output_text)
 
 
-def discover_market() -> dict[str, Any]:
-    today = datetime.now(ROME).strftime("%Y-%m-%d")
+def _discover_context(today: str) -> dict[str, Any]:
     prompt = f"""
-Sei il primo livello di MARKET RADAR. Oggi è {today}.
-Usa la ricerca web e fonti finanziarie affidabili PUBBLICATE O AGGIORNATE OGGI ({today}, ora Europe/Rome). Non dare consigli di acquisto o vendita.
-Per gli alert live, NON usare notizie dei giorni precedenti come spiegazione principale del movimento di oggi.
-Una fonte più vecchia può essere usata solo come contesto storico secondario, mai per generare da sola un alert.
-Se non trovi una causa confermata da almeno una fonte di oggi, considera la causa non confermata e non proporre il caso come alert.
+Sei MARKET RADAR. Oggi è {today}, ora Europe/Rome.
+Usa ricerca web e fonti finanziarie affidabili pubblicate o aggiornate OGGI.
+Non dare consigli di acquisto o vendita.
 
-Obiettivi:
-1) Stabilisci la FASE STRUTTURALE del mercato USA e del mercato europeo: bull, correction, bear oppure uncertain. La fase strutturale riguarda settimane/mesi, NON la sola seduta di oggi. Riporta una motivazione molto breve e fonti recenti.
-2) Trova società quotate USA o Europa di grande capitalizzazione e buona liquidità che OGGI stanno avendo un ribasso forte o chiaramente anomalo rispetto al proprio indice/settore. Non usare una soglia rigida: privilegia anomalie relative. Escludi micro-cap, penny stock e titoli illiquidi.
-3) Controlla anche i benchmark obbligazionari che influenzano i mercati: Treasury USA 10Y, Bund 10Y, BTP 10Y, OAT Francia 10Y, Gilt UK 10Y.
-   Nei giorni feriali segnala SOLO anomalie che stanno avvenendo nella seduta di OGGI ({today}) o che stanno chiaramente proseguendo/accelerando oggi.
-   Non riproporre come nuovo alert un movimento importante avvenuto solo nella seduta precedente.
-   Nel weekend, invece, puoi usare l'ultima seduta disponibile.
-   Segnala soltanto movimenti davvero rilevanti per il contesto azionario.
-4) Per i ticker azionari usa, quando possibile, il simbolo compatibile con Yahoo Finance (es. GOOGL, MBG.DE, AIR.PA, ISP.MI).
+Devi fare SOLO due cose:
+1) Stabilire la fase strutturale del mercato USA e del mercato europeo: bull, correction, bear oppure uncertain.
+2) Controllare Treasury USA 10Y, Bund 10Y, BTP 10Y, OAT Francia 10Y e Gilt UK 10Y e segnalare soltanto movimenti di OGGI davvero rilevanti per il mercato azionario.
 
-Restituisci SOLO JSON valido con questa struttura:
-{{
-  "market_regime": {{
-    "usa": {{"phase": "bull|correction|bear|uncertain", "reason": "...", "sources": ["https://..."]}},
-    "europe": {{"phase": "bull|correction|bear|uncertain", "reason": "...", "sources": ["https://..."]}}
-  }},
+Restituisci SOLO JSON valido:
+{
+  "market_regime": {
+    "usa": {"phase": "bull|correction|bear|uncertain", "reason": "...", "sources": ["https://..."]},
+    "europe": {"phase": "bull|correction|bear|uncertain", "reason": "...", "sources": ["https://..."]}
+  },
   "bond_context": [
-    {{"benchmark": "US Treasury 10Y", "observation_date": "YYYY-MM-DD", "move": "...", "why": "...", "important": true, "sources": ["https://..."]}}
-  ],
+    {"benchmark": "US Treasury 10Y", "observation_date": "YYYY-MM-DD", "move": "...", "why": "...", "important": true, "sources": ["https://..."]}
+  ]
+}
+"""
+    return _ask_web(DISCOVERY_MODEL, prompt)
+
+
+def _discover_equity_candidates(today: str) -> list[dict[str, Any]]:
+    searches = [
+        (
+            "USA",
+            "Cerca tra le società USA a grande o medio-grande capitalizzazione e buona liquidità. "
+            "Individua TUTTI i titoli importanti che OGGI stanno crollando o hanno un ribasso chiaramente anomalo. "
+            "Controlla in particolare S&P 500, Nasdaq 100 e le principali large cap USA."
+        ),
+        (
+            "EUROPA",
+            "Cerca tra le società europee a grande o medio-grande capitalizzazione e buona liquidità. "
+            "Individua TUTTI i titoli importanti che OGGI stanno crollando o hanno un ribasso chiaramente anomalo. "
+            "Controlla i principali mercati e indici europei, inclusi DAX, CAC 40, FTSE 100, FTSE MIB, AEX, IBEX e SMI."
+        ),
+        (
+            "M&A",
+            "Cerca OGGI società quotate USA o Europa importanti che stanno scendendo molto dopo acquisizioni, fusioni, "
+            "offerte, aumento del debito, emissione di nuove azioni o timori di diluizione."
+        ),
+        (
+            "RISULTATI_E_NEWS",
+            "Cerca OGGI società quotate USA o Europa importanti che stanno crollando dopo trimestrali, profit warning, "
+            "taglio della guidance, downgrade, problemi regolatori o legali, oppure altre notizie societarie specifiche."
+        ),
+        (
+            "CROLLI_GENERALI",
+            "Cerca sul web le espressioni e i risultati equivalenti a 'large cap stock plunges today', "
+            "'shares tumble today', 'stock down 5% today', 'stock down 10% today', USA ed Europa. "
+            "Lo scopo è trovare casi importanti eventualmente sfuggiti alle ricerche precedenti."
+        ),
+    ]
+
+    merged: dict[str, dict[str, Any]] = {}
+
+    for label, focus in searches:
+        prompt = f"""
+Sei il motore di scoperta azionaria di MARKET RADAR. Oggi è {today}, ora Europe/Rome.
+Usa ricerca web e fonti finanziarie affidabili PUBBLICATE O AGGIORNATE OGGI.
+
+{focus}
+
+Regole:
+- NON scegliere una shortlist arbitraria e NON fermarti ai primi quattro risultati.
+- Riporta tutti i casi rilevanti che trovi in questa ricerca.
+- Considera solo società con capitalizzazione e liquidità significative; escludi micro-cap, penny stock e titoli illiquidi.
+- Privilegia crolli forti o movimenti chiaramente anomali rispetto a indice/settore.
+- Il movimento deve essere di OGGI. Una notizia vecchia non basta.
+- Non serve decidere se il titolo sia da comprare: questa fase deve soltanto TROVARE l'anomalia.
+- Usa, quando possibile, ticker compatibili con Yahoo Finance.
+
+Restituisci SOLO JSON valido:
+{
   "equity_candidates": [
-    {{
+    {
       "company": "...",
       "ticker": "...",
       "region": "USA|EUROPE",
       "sector": "...",
       "index_reference": "Nasdaq 100|S&P 500|Euro Stoxx 50|altro",
       "reported_change_pct": -8.4,
-      "why_candidate": "..."
-    }}
+      "why_candidate": "evento/anomalia osservata oggi"
+    }
   ]
-}}
-
-Massimo {MAX_CANDIDATES} candidati azionari, ordinati per anomalia/interesse da approfondire.
+}
 """
-    return _ask_web(DISCOVERY_MODEL, prompt)
+        try:
+            result = _ask_web(DISCOVERY_MODEL, prompt)
+        except Exception as exc:
+            print(f"Discovery {label} non disponibile: {exc}")
+            continue
 
+        found = result.get("equity_candidates") or []
+        print(f"Discovery {label}: {len(found)} candidati")
+
+        for candidate in found:
+            ticker = str(candidate.get("ticker", "")).strip()
+            if not ticker:
+                continue
+            key = ticker.upper()
+
+            if key not in merged:
+                merged[key] = candidate
+                continue
+
+            old_reason = str(merged[key].get("why_candidate", "")).strip()
+            new_reason = str(candidate.get("why_candidate", "")).strip()
+            if new_reason and new_reason not in old_reason:
+                merged[key]["why_candidate"] = (
+                    f"{old_reason} | {new_reason}" if old_reason else new_reason
+                )
+
+    candidates = list(merged.values())
+
+    def _reported_drop(item: dict[str, Any]) -> float:
+        try:
+            return float(item.get("reported_change_pct", 0.0))
+        except (TypeError, ValueError):
+            return 0.0
+
+    candidates.sort(key=_reported_drop)
+    print(f"Discovery azionaria totale: {len(candidates)} candidati unici")
+    if candidates:
+        print("Ticker scoperti: " + ", ".join(str(c.get("ticker", "?")) for c in candidates))
+
+    return candidates
+
+
+def discover_market() -> dict[str, Any]:
+    today = datetime.now(ROME).strftime("%Y-%m-%d")
+    context = _discover_context(today)
+    context["equity_candidates"] = _discover_equity_candidates(today)
+    return context
 
 def market_snapshot(ticker: str) -> MarketSnapshot | None:
     try:
@@ -567,7 +657,7 @@ def run_radar() -> None:
 
     sent = 0
 
-    for candidate in candidates[:MAX_CANDIDATES]:
+    for candidate in candidates:
         ticker = str(candidate.get("ticker", "")).strip()
         if not ticker:
             continue

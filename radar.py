@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import re
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -140,9 +141,7 @@ def _discover_equity_candidates(today: str) -> list[dict[str, Any]]:
         ),
     ]
 
-    merged: dict[str, dict[str, Any]] = {}
-
-    for label, focus in searches:
+    def _search_one(label: str, focus: str) -> tuple[str, dict[str, Any]]:
         prompt = f"""
 Sei il motore di scoperta azionaria di MARKET RADAR. Oggi è {today}, ora Europe/Rome.
 Usa ricerca web e fonti finanziarie affidabili PUBBLICATE O AGGIORNATE OGGI.
@@ -173,31 +172,45 @@ Restituisci SOLO JSON valido:
   ]
 }}
 """
-        try:
-            result = _ask_web(DISCOVERY_MODEL, prompt)
-        except Exception as exc:
-            print(f"Discovery {label} non disponibile: {exc}")
-            continue
+        return label, _ask_web(DISCOVERY_MODEL, prompt)
 
-        found = result.get("equity_candidates") or []
-        print(f"Discovery {label}: {len(found)} candidati")
+    merged: dict[str, dict[str, Any]] = {}
 
-        for candidate in found:
-            ticker = str(candidate.get("ticker", "")).strip()
-            if not ticker:
+    # Le ricerche sono indipendenti e vengono eseguite in parallelo:
+    # più copertura senza trasformare una scansione in una coda di diversi minuti.
+    with ThreadPoolExecutor(max_workers=len(searches)) as executor:
+        futures = {
+            executor.submit(_search_one, label, focus): label
+            for label, focus in searches
+        }
+
+        for future in as_completed(futures):
+            label = futures[future]
+            try:
+                _, result = future.result()
+            except Exception as exc:
+                print(f"Discovery {label} non disponibile: {exc}")
                 continue
-            key = ticker.upper()
 
-            if key not in merged:
-                merged[key] = candidate
-                continue
+            found = result.get("equity_candidates") or []
+            print(f"Discovery {label}: {len(found)} candidati")
 
-            old_reason = str(merged[key].get("why_candidate", "")).strip()
-            new_reason = str(candidate.get("why_candidate", "")).strip()
-            if new_reason and new_reason not in old_reason:
-                merged[key]["why_candidate"] = (
-                    f"{old_reason} | {new_reason}" if old_reason else new_reason
-                )
+            for candidate in found:
+                ticker = str(candidate.get("ticker", "")).strip()
+                if not ticker:
+                    continue
+                key = ticker.upper()
+
+                if key not in merged:
+                    merged[key] = candidate
+                    continue
+
+                old_reason = str(merged[key].get("why_candidate", "")).strip()
+                new_reason = str(candidate.get("why_candidate", "")).strip()
+                if new_reason and new_reason not in old_reason:
+                    merged[key]["why_candidate"] = (
+                        f"{old_reason} | {new_reason}" if old_reason else new_reason
+                    )
 
     candidates = list(merged.values())
 
@@ -213,7 +226,6 @@ Restituisci SOLO JSON valido:
         print("Ticker scoperti: " + ", ".join(str(c.get("ticker", "?")) for c in candidates))
 
     return candidates
-
 
 def discover_market() -> dict[str, Any]:
     today = datetime.now(ROME).strftime("%Y-%m-%d")

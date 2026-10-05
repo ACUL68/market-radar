@@ -115,7 +115,7 @@ def _discover_equity_candidates(today: str) -> list[dict[str, Any]]:
     searches = [
         (
             "USA",
-            "Cerca sul web tra le società USA a grande o medio-grande capitalizzazione e buona liquidità. "
+            "Cerca sul web SOLO tra società USA large cap, con capitalizzazione almeno circa 10 miliardi e buona liquidità. "
             "Individua TUTTI i titoli importanti che OGGI stanno crollando o hanno un ribasso chiaramente anomalo. "
             "Controlla in particolare S&P 500, Nasdaq 100 e le principali large cap USA. "
             "Includi anche crolli legati ad acquisizioni/M&A, nuovo debito o diluizione, trimestrali, profit warning, "
@@ -123,7 +123,7 @@ def _discover_equity_candidates(today: str) -> list[dict[str, Any]]:
         ),
         (
             "EUROPA",
-            "Cerca sul web tra le società europee a grande o medio-grande capitalizzazione e buona liquidità. "
+            "Cerca sul web SOLO tra società europee large cap, con capitalizzazione almeno circa 10 miliardi e buona liquidità. "
             "Individua TUTTI i titoli importanti che OGGI stanno crollando o hanno un ribasso chiaramente anomalo. "
             "Controlla i principali mercati e indici europei, inclusi DAX, CAC 40, FTSE 100, FTSE MIB, AEX, IBEX e SMI. "
             "Includi anche crolli legati ad acquisizioni/M&A, nuovo debito o diluizione, trimestrali, profit warning, "

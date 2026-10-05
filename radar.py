@@ -95,15 +95,15 @@ Devi fare SOLO due cose:
 2) Controllare Treasury USA 10Y, Bund 10Y, BTP 10Y, OAT Francia 10Y e Gilt UK 10Y e segnalare soltanto movimenti di OGGI davvero rilevanti per il mercato azionario.
 
 Restituisci SOLO JSON valido:
-{
-  "market_regime": {
-    "usa": {"phase": "bull|correction|bear|uncertain", "reason": "...", "sources": ["https://..."]},
-    "europe": {"phase": "bull|correction|bear|uncertain", "reason": "...", "sources": ["https://..."]}
-  },
+{{
+  "market_regime": {{
+    "usa": {{"phase": "bull|correction|bear|uncertain", "reason": "...", "sources": ["https://..."]}},
+    "europe": {{"phase": "bull|correction|bear|uncertain", "reason": "...", "sources": ["https://..."]}}
+  }},
   "bond_context": [
-    {"benchmark": "US Treasury 10Y", "observation_date": "YYYY-MM-DD", "move": "...", "why": "...", "important": true, "sources": ["https://..."]}
+    {{"benchmark": "US Treasury 10Y", "observation_date": "YYYY-MM-DD", "move": "...", "why": "...", "important": true, "sources": ["https://..."]}}
   ]
-}
+}}
 """
     return _ask_web(DISCOVERY_MODEL, prompt)
 
@@ -159,9 +159,9 @@ Regole:
 - Usa, quando possibile, ticker compatibili con Yahoo Finance.
 
 Restituisci SOLO JSON valido:
-{
+{{
   "equity_candidates": [
-    {
+    {{
       "company": "...",
       "ticker": "...",
       "region": "USA|EUROPE",
@@ -169,9 +169,9 @@ Restituisci SOLO JSON valido:
       "index_reference": "Nasdaq 100|S&P 500|Euro Stoxx 50|altro",
       "reported_change_pct": -8.4,
       "why_candidate": "evento/anomalia osservata oggi"
-    }
+    }}
   ]
-}
+}}
 """
         try:
             result = _ask_web(DISCOVERY_MODEL, prompt)

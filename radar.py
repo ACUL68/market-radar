@@ -113,31 +113,19 @@ def _discover_equity_candidates(today: str) -> list[dict[str, Any]]:
     searches = [
         (
             "USA",
-            "Cerca tra le società USA a grande o medio-grande capitalizzazione e buona liquidità. "
+            "Cerca sul web tra le società USA a grande o medio-grande capitalizzazione e buona liquidità. "
             "Individua TUTTI i titoli importanti che OGGI stanno crollando o hanno un ribasso chiaramente anomalo. "
-            "Controlla in particolare S&P 500, Nasdaq 100 e le principali large cap USA."
+            "Controlla in particolare S&P 500, Nasdaq 100 e le principali large cap USA. "
+            "Includi anche crolli legati ad acquisizioni/M&A, nuovo debito o diluizione, trimestrali, profit warning, "
+            "tagli di guidance, downgrade, problemi regolatori/legali e altre notizie societarie specifiche."
         ),
         (
             "EUROPA",
-            "Cerca tra le società europee a grande o medio-grande capitalizzazione e buona liquidità. "
+            "Cerca sul web tra le società europee a grande o medio-grande capitalizzazione e buona liquidità. "
             "Individua TUTTI i titoli importanti che OGGI stanno crollando o hanno un ribasso chiaramente anomalo. "
-            "Controlla i principali mercati e indici europei, inclusi DAX, CAC 40, FTSE 100, FTSE MIB, AEX, IBEX e SMI."
-        ),
-        (
-            "M&A",
-            "Cerca OGGI società quotate USA o Europa importanti che stanno scendendo molto dopo acquisizioni, fusioni, "
-            "offerte, aumento del debito, emissione di nuove azioni o timori di diluizione."
-        ),
-        (
-            "RISULTATI_E_NEWS",
-            "Cerca OGGI società quotate USA o Europa importanti che stanno crollando dopo trimestrali, profit warning, "
-            "taglio della guidance, downgrade, problemi regolatori o legali, oppure altre notizie societarie specifiche."
-        ),
-        (
-            "CROLLI_GENERALI",
-            "Cerca sul web le espressioni e i risultati equivalenti a 'large cap stock plunges today', "
-            "'shares tumble today', 'stock down 5% today', 'stock down 10% today', USA ed Europa. "
-            "Lo scopo è trovare casi importanti eventualmente sfuggiti alle ricerche precedenti."
+            "Controlla i principali mercati e indici europei, inclusi DAX, CAC 40, FTSE 100, FTSE MIB, AEX, IBEX e SMI. "
+            "Includi anche crolli legati ad acquisizioni/M&A, nuovo debito o diluizione, trimestrali, profit warning, "
+            "tagli di guidance, downgrade, problemi regolatori/legali e altre notizie societarie specifiche."
         ),
     ]
 

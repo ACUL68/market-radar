@@ -48,5 +48,7 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           OPENAI_DISCOVERY_MODEL: gpt-6-luna
           OPENAI_ANALYSIS_MODEL: gpt-6-sol
+          LARGE_CAP_MIN_MARKET_CAP: '10000000000'
+          MIN_EQUITY_DROP_PCT: '-7.0'
           FORCE_SCAN: ${{ github.event_name == 'workflow_dispatch' && '1' || '0' }}
         run: python main.py

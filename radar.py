@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import os
 import re
-from concurrent.futures import ThreadPoolExecutor, as_completed
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -164,41 +164,44 @@ Restituisci SOLO JSON valido:
 
     merged: dict[str, dict[str, Any]] = {}
 
-    # Le ricerche sono indipendenti e vengono eseguite in parallelo:
-    # più copertura senza trasformare una scansione in una coda di diversi minuti.
-    with ThreadPoolExecutor(max_workers=len(searches)) as executor:
-        futures = {
-            executor.submit(_search_one, label, focus): label
-            for label, focus in searches
-        }
-
-        for future in as_completed(futures):
-            label = futures[future]
+    # Due ricerche ampie e indipendenti, una USA e una Europa.
+    # Le eseguiamo in sequenza per non saturare il limite token/minuto del modello.
+    for label, focus in searches:
+        result: dict[str, Any] | None = None
+        for attempt in range(2):
             try:
-                _, result = future.result()
+                _, result = _search_one(label, focus)
+                break
             except Exception as exc:
+                message = str(exc)
+                if attempt == 0 and ("429" in message or "rate limit" in message.lower()):
+                    print(f"Discovery {label}: rate limit, nuovo tentativo tra 10 secondi")
+                    time.sleep(10)
+                    continue
                 print(f"Discovery {label} non disponibile: {exc}")
+
+        if not result:
+            continue
+
+        found = result.get("equity_candidates") or []
+        print(f"Discovery {label}: {len(found)} candidati")
+
+        for candidate in found:
+            ticker = str(candidate.get("ticker", "")).strip()
+            if not ticker:
+                continue
+            key = ticker.upper()
+
+            if key not in merged:
+                merged[key] = candidate
                 continue
 
-            found = result.get("equity_candidates") or []
-            print(f"Discovery {label}: {len(found)} candidati")
-
-            for candidate in found:
-                ticker = str(candidate.get("ticker", "")).strip()
-                if not ticker:
-                    continue
-                key = ticker.upper()
-
-                if key not in merged:
-                    merged[key] = candidate
-                    continue
-
-                old_reason = str(merged[key].get("why_candidate", "")).strip()
-                new_reason = str(candidate.get("why_candidate", "")).strip()
-                if new_reason and new_reason not in old_reason:
-                    merged[key]["why_candidate"] = (
-                        f"{old_reason} | {new_reason}" if old_reason else new_reason
-                    )
+            old_reason = str(merged[key].get("why_candidate", "")).strip()
+            new_reason = str(candidate.get("why_candidate", "")).strip()
+            if new_reason and new_reason not in old_reason:
+                merged[key]["why_candidate"] = (
+                    f"{old_reason} | {new_reason}" if old_reason else new_reason
+                )
 
     candidates = list(merged.values())
 

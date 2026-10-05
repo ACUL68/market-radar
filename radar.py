@@ -19,6 +19,8 @@ from openai import OpenAI
 DISCOVERY_MODEL = os.getenv("OPENAI_DISCOVERY_MODEL", "gpt-6-luna")
 ANALYSIS_MODEL = os.getenv("OPENAI_ANALYSIS_MODEL", "gpt-6-sol")
 STATE_FILE = Path(os.getenv("RADAR_STATE_FILE", ".radar_state.json"))
+LARGE_CAP_MIN_MARKET_CAP = float(os.getenv("LARGE_CAP_MIN_MARKET_CAP", "10000000000"))
+MIN_EQUITY_DROP_PCT = float(os.getenv("MIN_EQUITY_DROP_PCT", "-7.0"))
 
 INDEX_BY_REGION = {
     "USA": "^NDX",
@@ -139,8 +141,8 @@ Usa ricerca web e fonti finanziarie affidabili PUBBLICATE O AGGIORNATE OGGI.
 Regole:
 - NON scegliere una shortlist arbitraria e NON fermarti ai primi quattro risultati.
 - Riporta tutti i casi rilevanti che trovi in questa ricerca.
-- Considera solo società con capitalizzazione e liquidità significative; escludi micro-cap, penny stock e titoli illiquidi.
-- Privilegia crolli forti o movimenti chiaramente anomali rispetto a indice/settore.
+- Considera SOLO large cap: capitalizzazione indicativamente almeno 10 miliardi; escludi micro-cap, mid-cap piccole, penny stock e titoli illiquidi.
+- Cerca ribassi di OGGI pari o superiori al 7% circa; il programma verificherà poi numericamente prezzo e market cap.
 - Il movimento deve essere di OGGI. Una notizia vecchia non basta.
 - Non serve decidere se il titolo sia da comprare: questa fase deve soltanto TROVARE l'anomalia.
 - Usa, quando possibile, ticker compatibili con Yahoo Finance.
@@ -248,6 +250,68 @@ def market_snapshot(ticker: str) -> MarketSnapshot | None:
     except Exception as exc:
         print(f"Market data error {ticker}: {exc}")
         return None
+
+
+def market_cap_yahoo(ticker: str) -> tuple[float | None, str | None]:
+    """Restituisce market cap e valuta da Yahoo Finance. Se il dato non è verificabile, fallisce chiuso."""
+    try:
+        tk = yf.Ticker(ticker)
+        cap: float | None = None
+        currency: str | None = None
+
+        try:
+            fast = tk.fast_info
+            raw_cap = getattr(fast, "market_cap", None)
+            if raw_cap is None:
+                try:
+                    raw_cap = fast["market_cap"]
+                except Exception:
+                    raw_cap = None
+            raw_currency = getattr(fast, "currency", None)
+            if raw_currency is None:
+                try:
+                    raw_currency = fast["currency"]
+                except Exception:
+                    raw_currency = None
+            if raw_cap is not None:
+                cap = float(raw_cap)
+            if raw_currency:
+                currency = str(raw_currency)
+        except Exception:
+            pass
+
+        if cap is None:
+            try:
+                info = tk.info or {}
+                raw_cap = info.get("marketCap")
+                if raw_cap is not None:
+                    cap = float(raw_cap)
+                currency = currency or info.get("currency")
+            except Exception:
+                pass
+
+        return cap, currency
+    except Exception as exc:
+        print(f"Market cap error {ticker}: {exc}")
+        return None, None
+
+
+def has_recent_market_data(snapshot: MarketSnapshot, max_age_days: int = 7) -> bool:
+    """Scarta ticker non più attivi/delistati usando la freschezza dell'ultima barra Yahoo."""
+    try:
+        last_idx = snapshot.history.index[-1]
+        if hasattr(last_idx, "to_pydatetime"):
+            last_dt = last_idx.to_pydatetime()
+        else:
+            last_dt = last_idx
+        if last_dt.tzinfo is None:
+            last_dt = last_dt.replace(tzinfo=ROME)
+        else:
+            last_dt = last_dt.astimezone(ROME)
+        age_days = (datetime.now(ROME).date() - last_dt.date()).days
+        return age_days <= max_age_days
+    except Exception:
+        return False
 
 
 def index_for_candidate(candidate: dict[str, Any]) -> str:
@@ -668,14 +732,36 @@ def run_radar() -> None:
         if not snap:
             print(f"Skip {ticker}: quotazione non verificabile")
             continue
+        if not has_recent_market_data(snap):
+            print(f"Skip {ticker}: ticker non attivo o dati Yahoo non recenti")
+            continue
+
+        market_cap, market_cap_currency = market_cap_yahoo(ticker)
+        if market_cap is None:
+            print(f"Skip {ticker}: market cap Yahoo non verificabile")
+            continue
+        if market_cap < LARGE_CAP_MIN_MARKET_CAP:
+            print(
+                f"Skip {ticker}: market cap {market_cap / 1_000_000_000:.2f} mld "
+                f"{market_cap_currency or ''} < 10 mld"
+            )
+            continue
+
+        # Filtro duro richiesto: solo large cap con crollo verificato di almeno il 7% oggi.
+        if snap.change_pct > MIN_EQUITY_DROP_PCT:
+            print(
+                f"Skip {ticker}: ribasso verificato {snap.change_pct:+.2f}% "
+                f"(serve <= {MIN_EQUITY_DROP_PCT:.2f}%)"
+            )
+            continue
+
+        print(
+            f"PASS {ticker}: {snap.change_pct:+.2f}% | "
+            f"market cap {market_cap / 1_000_000_000:.2f} mld {market_cap_currency or ''}"
+        )
+
         idx_ticker = index_for_candidate(candidate)
         idx = market_snapshot(idx_ticker)
-
-        # L'AI trova i candidati; il programma richiede anche un'anomalia numerica minima.
-        relative_gap = abs(snap.change_pct - (idx.change_pct if idx else 0.0))
-        if snap.change_pct > -4.0 and relative_gap < 5.0:
-            print(f"Skip {ticker}: movimento verificato non abbastanza anomalo")
-            continue
 
         analysis = analyze_candidate(candidate, snap, idx, regime, bonds)
         if not analysis.get("interesting_to_study"):

@@ -7,7 +7,7 @@ from zoneinfo import ZoneInfo
 from radar import run_asia_early_warning, run_radar
 
 ROME = ZoneInfo("Europe/Rome")
-SLOTS = [(8, 15), (10, 15), (15, 45), (21, 0)]
+SLOTS = [(8, 15), (9, 30), (15, 45), (21, 0)]
 
 
 def due_now() -> bool:

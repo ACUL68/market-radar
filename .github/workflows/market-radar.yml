@@ -5,8 +5,8 @@ on:
   schedule:
     # GitHub cron usa UTC. Inseriamo entrambe le ore CET/CEST;
     # main.py esegue la scansione solo quando Europe/Rome coincide col relativo slot.
-    - cron: '40 6 * * 1-5'
-    - cron: '40 7 * * 1-5'
+    - cron: '30 6 * * 1-5'
+    - cron: '30 7 * * 1-5'
     - cron: '30 8 * * 1-5'
     - cron: '30 9 * * 1-5'
     - cron: '0 14 * * 1-5'

@@ -3,8 +3,7 @@ name: Market Radar
 on:
   workflow_dispatch:
   schedule:
-    # GitHub cron usa UTC. Lanciamo 15 minuti prima degli slot reali;
-    # main.py aspetta lo slot se il job parte puntuale e parte subito se GitHub è in ritardo.
+    # GitHub cron usa UTC. Gli slot sono volutamente anticipati di 15 minuti.
     # Inseriamo entrambe le ore CET/CEST.
     - cron: '15 6 * * 1-5'
     - cron: '15 7 * * 1-5'

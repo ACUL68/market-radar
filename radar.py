@@ -725,7 +725,7 @@ def run_asia_early_warning() -> None:
 
     nikkei = snap.change_pct
 
-    # Gate Nikkei alle 08:30 Europe/Rome.
+    # Gate Nikkei mattutino.
     # Sei soglie logiche, con priorità al livello più alto raggiunto:
     # >= +1%, >= +1.5%, >= +2% e simmetricamente <= -1%, <= -1.5%, <= -2%.
     if nikkei >= 2.0:
@@ -762,7 +762,7 @@ def run_asia_early_warning() -> None:
         return
 
     body = (
-        "🟧 MARKET RADAR — GATE NIKKEI 08:30\n\n"
+        "🟧 MARKET RADAR — GATE NIKKEI\n\n"
         f"{signal}\n"
         f"Nikkei 225: {nikkei:+.2f}%\n"
         f"Soglia attivata: {level:+.1f}%"

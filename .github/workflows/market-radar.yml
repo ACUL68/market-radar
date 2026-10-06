@@ -3,16 +3,36 @@ name: Market Radar
 on:
   workflow_dispatch:
   schedule:
-    # GitHub cron usa UTC. Gli slot sono volutamente anticipati di 15 minuti.
-    # Inseriamo entrambe le ore CET/CEST.
+    # Europe/Rome: ogni slot ha un tentativo principale e un recupero +25 minuti.
+    # GitHub cron usa UTC, quindi teniamo entrambe le varianti CET/CEST.
+    # main.py ignora automaticamente la variante che arriverebbe troppo presto.
+    # 08:15 Nikkei + recupero 08:40
     - cron: '15 6 * * 1-5'
     - cron: '15 7 * * 1-5'
+    - cron: '40 6 * * 1-5'
+    - cron: '40 7 * * 1-5'
+
+    # 09:05 Europa + recupero 09:30
+    - cron: '5 7 * * 1-5'
+    - cron: '5 8 * * 1-5'
     - cron: '30 7 * * 1-5'
     - cron: '30 8 * * 1-5'
-    - cron: '45 13 * * 1-5'
-    - cron: '45 14 * * 1-5'
-    - cron: '0 19 * * 1-5'
-    - cron: '0 20 * * 1-5'
+
+    # 15:35 USA + recupero 16:00
+    - cron: '35 13 * * 1-5'
+    - cron: '35 14 * * 1-5'
+    - cron: '0 14 * * 1-5'
+    - cron: '0 15 * * 1-5'
+
+    # 21:45 ultimo controllo + recupero 22:10
+    - cron: '45 19 * * 1-5'
+    - cron: '45 20 * * 1-5'
+    - cron: '10 20 * * 1-5'
+    - cron: '10 21 * * 1-5'
+
+concurrency:
+  group: market-radar
+  cancel-in-progress: false
 
 jobs:
   radar:
@@ -53,4 +73,5 @@ jobs:
           LARGE_CAP_MIN_MARKET_CAP: '10000000000'
           MIN_EQUITY_DROP_PCT: '-7.0'
           FORCE_SCAN: ${{ github.event_name == 'workflow_dispatch' && '1' || '0' }}
+          TRIGGER_SCHEDULE: ${{ github.event.schedule }}
         run: python main.py

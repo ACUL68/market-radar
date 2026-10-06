@@ -42,7 +42,6 @@ INDEX_WATCH = {
 
 ASIA_WATCH = {
     "Nikkei 225": "^N225",
-    "KOSPI": "^KS11",
 }
 
 ROME = ZoneInfo("Europe/Rome")
@@ -728,53 +727,59 @@ Restituisci SOLO JSON valido:
 
 
 def run_asia_early_warning() -> None:
-    snaps: dict[str, MarketSnapshot] = {}
-    for name, ticker in ASIA_WATCH.items():
-        snap = market_snapshot(ticker)
-        if snap:
-            snaps[name] = snap
-
-    if len(snaps) < 2:
-        print("Asia signal: dati insufficienti")
+    snap = market_snapshot(ASIA_WATCH["Nikkei 225"])
+    if not snap:
+        print("Nikkei gate: dati insufficienti")
         return
 
-    changes = {name: snap.change_pct for name, snap in snaps.items()}
-    nikkei = changes.get("Nikkei 225", 0.0)
-    kospi = changes.get("KOSPI", 0.0)
+    nikkei = snap.change_pct
 
-    # Il segnale scatta soltanto quando Nikkei e KOSPI confermano
-    # la stessa direzione oltre la soglia dell'1%.
-    if nikkei >= 2.0 and kospi >= 2.0:
-        signal = "ASIA LONG FORTE"
-        key = "ASIA_LONG_FORTE"
-    elif nikkei >= 1.0 and kospi >= 1.0:
-        signal = "ASIA LONG"
-        key = "ASIA_LONG"
-    elif nikkei <= -2.0 and kospi <= -2.0:
-        signal = "ASIA SHORT FORTE"
-        key = "ASIA_SHORT_FORTE"
-    elif nikkei <= -1.0 and kospi <= -1.0:
-        signal = "ASIA SHORT"
-        key = "ASIA_SHORT"
+    # Gate Nikkei alle 08:30 Europe/Rome.
+    # Sei soglie logiche, con priorità al livello più alto raggiunto:
+    # >= +1%, >= +1.5%, >= +2% e simmetricamente <= -1%, <= -1.5%, <= -2%.
+    if nikkei >= 2.0:
+        signal = "NIKKEI LONG ESTREMO >= +2%"
+        key = "NIKKEI_LONG_2"
+        level = 2.0
+    elif nikkei >= 1.5:
+        signal = "NIKKEI LONG FORTE >= +1.5%"
+        key = "NIKKEI_LONG_1_5"
+        level = 1.5
+    elif nikkei >= 1.0:
+        signal = "NIKKEI LONG >= +1%"
+        key = "NIKKEI_LONG_1"
+        level = 1.0
+    elif nikkei <= -2.0:
+        signal = "NIKKEI SHORT ESTREMO <= -2%"
+        key = "NIKKEI_SHORT_2"
+        level = -2.0
+    elif nikkei <= -1.5:
+        signal = "NIKKEI SHORT FORTE <= -1.5%"
+        key = "NIKKEI_SHORT_1_5"
+        level = -1.5
+    elif nikkei <= -1.0:
+        signal = "NIKKEI SHORT <= -1%"
+        key = "NIKKEI_SHORT_1"
+        level = -1.0
     else:
-        print(f"Asia signal: nessun setup {changes}")
+        print(f"Nikkei gate: nessun setup ({nikkei:+.2f}%)")
         return
 
     state = _load_state()
-    avg_move = (nikkei + kospi) / 2.0
-    if should_suppress(key, avg_move, state):
-        print(f"Asia signal duplicato soppresso: {signal}")
+    if should_suppress(key, nikkei, state):
+        print(f"Nikkei gate duplicato soppresso: {signal}")
         return
 
     body = (
+        "🟧 MARKET RADAR — GATE NIKKEI 08:30\n\n"
         f"{signal}\n"
-        f"Nikkei {nikkei:+.2f}% | KOSPI {kospi:+.2f}%"
+        f"Nikkei 225: {nikkei:+.2f}%\n"
+        f"Soglia attivata: {level:+.1f}%"
     )
 
     send_message(body)
-    mark_alert(key, avg_move, state)
+    mark_alert(key, nikkei, state)
     _save_state(state)
-
 
 def detect_index_anomaly() -> dict[str, Any] | None:
     """

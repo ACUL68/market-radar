@@ -8,6 +8,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from radar import run_asia_early_warning, run_radar
+from wti import run_morning_wti
 
 ROME = ZoneInfo("Europe/Rome")
 STATE_FILE = Path(os.getenv("RADAR_STATE_FILE", ".radar_state.json"))
@@ -95,6 +96,7 @@ def _mark_completed(now: datetime, slot: str) -> None:
 def _run_slot(slot: str) -> None:
     if SLOTS[slot] == "nikkei":
         run_asia_early_warning()
+        run_morning_wti()
     else:
         run_radar()
 
@@ -102,6 +104,7 @@ def _run_slot(slot: str) -> None:
 def _manual_run(now: datetime) -> None:
     if (now.hour, now.minute) < (9, 0):
         run_asia_early_warning()
+        run_morning_wti()
     else:
         run_radar()
 

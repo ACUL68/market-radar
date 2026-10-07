@@ -16,6 +16,21 @@ import requests
 import yfinance as yf
 from openai import OpenAI
 
+from macro_learning import (
+    EUROSTOXX_TICKER,
+    MACRO_ALERT_THRESHOLD,
+    calculate_macro_score,
+    format_macro_alert,
+    mark_macro_alert,
+    record_observation,
+    reliability_for_score,
+    set_verified_crash_count,
+    should_emit_macro_alert,
+    update_learning_outcomes,
+    update_learning_stats,
+    verified_wti_context,
+)
+
 DISCOVERY_MODEL = os.getenv("OPENAI_DISCOVERY_MODEL", "gpt-6-luna")
 ANALYSIS_MODEL = os.getenv("OPENAI_ANALYSIS_MODEL", "gpt-6-sol")
 GEMINI_DISCOVERY_MODEL = os.getenv("GEMINI_DISCOVERY_MODEL", "gemini-3.8-flash")
@@ -122,9 +137,19 @@ Sei MARKET RADAR. Oggi è {today}, ora Europe/Rome.
 Usa ricerca web e fonti finanziarie affidabili pubblicate o aggiornate OGGI.
 Non dare consigli di acquisto o vendita.
 
-Devi fare SOLO due cose:
+Devi fare QUATTRO cose:
 1) Stabilire la fase strutturale del mercato USA e del mercato europeo: bull, correction, bear oppure uncertain.
-2) Controllare Treasury USA 10Y, Bund 10Y, BTP 10Y, OAT Francia 10Y e Gilt UK 10Y e segnalare soltanto movimenti di OGGI davvero rilevanti per il mercato azionario.
+2) Controllare Treasury USA 10Y, Bund 10Y, BTP 10Y, OAT Francia 10Y e Gilt UK 10Y.
+   Per ciascuno restituisci il movimento di rendimento di OGGI in punti base come numero firmato:
+   positivo = rendimento in salita, negativo = rendimento in discesa. Se il dato non e verificabile usa null.
+3) Controllare VSTOXX spot: livello attuale e variazione percentuale di OGGI come numero firmato.
+4) Controllare WTI/front-month crude oil: livello attuale e variazione percentuale di OGGI come numero firmato.
+
+Regole:
+- segnala come important=true solo movimenti davvero rilevanti per EuroStoxx/azionario;
+- non inventare numeri: se non sono verificabili usa null e spiega il limite;
+- per bond/VSTOXX/WTI usa fonti di oggi e preferisci fonti ufficiali o finanziarie primarie;
+- il programma usera questi numeri solo come sensori statistici e verifichera poi l'esito sull'EuroStoxx 50.
 
 Restituisci SOLO JSON valido:
 {{
@@ -133,12 +158,34 @@ Restituisci SOLO JSON valido:
     "europe": {{"phase": "bull|correction|bear|uncertain", "reason": "...", "sources": ["https://..."]}}
   }},
   "bond_context": [
-    {{"benchmark": "US Treasury 10Y", "observation_date": "YYYY-MM-DD", "move": "...", "why": "...", "important": true, "sources": ["https://..."]}}
-  ]
+    {{
+      "benchmark": "US Treasury 10Y",
+      "observation_date": "YYYY-MM-DD",
+      "current_yield_pct": 5.28,
+      "move_bp": 7.4,
+      "move": "rendimento +7,4 pb oggi",
+      "why": "...",
+      "important": true,
+      "sources": ["https://..."]
+    }}
+  ],
+  "vstoxx_context": {{
+    "level": 24.6,
+    "change_pct": 12.4,
+    "why": "...",
+    "important": true,
+    "sources": ["https://..."]
+  }},
+  "wti_context": {{
+    "level": 91.2,
+    "change_pct": 4.1,
+    "why": "...",
+    "important": true,
+    "sources": ["https://..."]
+  }}
 }}
 """
     return _ask_web(DISCOVERY_MODEL, prompt)
-
 
 def _discover_equity_candidates_luna(today: str) -> list[dict[str, Any]]:
     searches = [
@@ -725,6 +772,16 @@ def run_asia_early_warning() -> None:
 
     nikkei = snap.change_pct
 
+    # Salva sempre il Nikkei come sensore di contesto per l'apprendimento.
+    # Non entra ancora nei pesi del macro-score: resta un modulo indipendente.
+    state = _load_state()
+    state.setdefault("sensor_cache", {})["nikkei"] = {
+        "time": datetime.now(ROME).isoformat(),
+        "change_pct": nikkei,
+        "price": snap.last,
+    }
+    _save_state(state)
+
     # Gate Nikkei mattutino.
     # Sei soglie logiche, con priorità al livello più alto raggiunto:
     # >= +1%, >= +1.5%, >= +2% e simmetricamente <= -1%, <= -1.5%, <= -2%.
@@ -756,7 +813,6 @@ def run_asia_early_warning() -> None:
         print(f"Nikkei gate: nessun setup ({nikkei:+.2f}%)")
         return
 
-    state = _load_state()
     if should_suppress(key, nikkei, state):
         print(f"Nikkei gate duplicato soppresso: {signal}")
         return
@@ -773,13 +829,67 @@ def run_asia_early_warning() -> None:
     _save_state(state)
 
 def run_radar() -> None:
+    # Prima aggiorniamo gli esiti dei segnali precedenti sull'EuroStoxx.
+    # In questo modo il Radar costruisce memoria statistica senza nuovi cron dedicati.
+    state = _load_state()
+    updated_outcomes = update_learning_outcomes(state)
+    stats = update_learning_stats(state)
+    if updated_outcomes:
+        print(f"Learning: aggiornati esiti per {updated_outcomes} osservazioni")
+    print(f"Learning: campioni completati {stats.get('completed_samples', 0)}")
+    _save_state(state)
+
     discovery = discover_market()
     regime = discovery.get("market_regime") or {}
     bonds = discovery.get("bond_context") or []
     candidates = discovery.get("equity_candidates") or []
+    vstoxx = discovery.get("vstoxx_context") or {}
+    wti = verified_wti_context(discovery.get("wti_context") or {})
 
+    # Il punteggio usa solo i sensori concordati: Bond 60%, VSTOXX 25%, WTI 15%.
+    macro_score = calculate_macro_score(bonds, vstoxx, wti)
+    euro = market_snapshot(EUROSTOXX_TICKER)
+
+    obs_id = record_observation(
+        state=state,
+        score=macro_score,
+        bonds=bonds,
+        vstoxx=vstoxx,
+        wti=wti,
+        eurostoxx_price=euro.last if euro else None,
+        eurostoxx_change_pct=euro.change_pct if euro else None,
+        regime=regime,
+        discovered_large_cap_candidates=len(candidates),
+    )
+    update_learning_stats(state)
+
+    strength = max(
+        float(macro_score.get("short_score", 0.0)),
+        float(macro_score.get("long_score", 0.0)),
+    )
+    print(
+        f"Macro score {macro_score.get('direction')}: {strength:.1f}/100 "
+        f"(alert >= {MACRO_ALERT_THRESHOLD:.0f})"
+    )
+
+    if should_emit_macro_alert(state, macro_score):
+        reliability = reliability_for_score(state, macro_score)
+        send_message(
+            format_macro_alert(
+                score=macro_score,
+                bonds=bonds,
+                vstoxx=vstoxx,
+                wti=wti,
+                eurostoxx_price=euro.last if euro else None,
+                eurostoxx_change_pct=euro.change_pct if euro else None,
+                reliability=reliability,
+            )
+        )
+        mark_macro_alert(state, macro_score)
+
+    # Il messaggio bond esistente resta attivo: e' il sensore principale.
     send_bond_context(bonds)
-    state = _load_state()
+    _save_state(state)
 
     sent = 0
 
@@ -836,5 +946,10 @@ def run_radar() -> None:
         mark_alert(ticker, snap.change_pct, state)
         sent += 1
 
+    # Il numero di crolli large-cap verificati viene registrato come feature,
+    # ma non modifica ancora il macro-score: prima raccogliamo statistica reale.
+    set_verified_crash_count(state, obs_id, sent)
+    update_learning_stats(state)
     _save_state(state)
     print(f"Market Radar completato. Alert azionari inviati: {sent}")
+

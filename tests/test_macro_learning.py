@@ -1,3 +1,8 @@
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
 from macro_learning import calculate_macro_score, extract_move_bp, update_learning_stats
 
 

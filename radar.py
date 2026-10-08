@@ -16,6 +16,8 @@ import requests
 import yfinance as yf
 from openai import OpenAI
 
+from sensor_alerts import pending_sensor_alerts, mark_sensor_alert
+
 from macro_learning import (
     EUROSTOXX_TICKER,
     MACRO_ALERT_THRESHOLD,
@@ -845,6 +847,13 @@ def run_radar() -> None:
     candidates = discovery.get("equity_candidates") or []
     vstoxx = discovery.get("vstoxx_context") or {}
     wti = verified_wti_context(discovery.get("wti_context") or {})
+
+    # Alert autonomi: WTI ±2%, VSTOXX ±5%. Indipendenti dal macro-score.
+    # Salvataggio dopo ogni Telegram riuscito per evitare doppioni in caso di errori successivi.
+    for sensor_key, report in pending_sensor_alerts(state, wti, vstoxx):
+        send_message(report)
+        mark_sensor_alert(state, sensor_key)
+        _save_state(state)
 
     # Il punteggio usa solo i sensori concordati: Bond 60%, VSTOXX 25%, WTI 15%.
     macro_score = calculate_macro_score(bonds, vstoxx, wti)

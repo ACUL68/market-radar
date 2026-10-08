@@ -40,6 +40,14 @@ Il Radar calcola:
 
 Per default manda un alert macro solo da **60/100** in su. Il messaggio bond esistente resta attivo.
 
+### Alert autonomi WTI e VSTOXX
+
+A ogni scansione macro programmata (**09:05, 15:35, 21:45 Europe/Rome**) il Radar controlla inoltre:
+- **WTI**: variazione odierna **≥ +2%** oppure **≤ -2%**;
+- **VSTOXX**: variazione odierna **≥ +5%** oppure **≤ -5%**.
+
+L'allerta **non dipende dal macro-score** e arriva su Telegram con valore rilevato, variazione, possibile causa, impatto e fonti se disponibili. Un solo report per indicatore e direzione nella stessa giornata; un'eventuale inversione significativa può produrre un secondo report. Gli alert partono solo durante le scansioni (non c'è monitoraggio continuo), quindi movimenti tra una scansione e l'altra possono sfuggire. I pesi macro e l'apprendimento rimangono invariati.
+
 L'unico mercato usato per misurare l'esito e l'**EURO STOXX 50**.
 
 ## Apprendimento

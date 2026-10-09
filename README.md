@@ -52,7 +52,7 @@ Il messaggio Telegram parte solo al primo superamento di una soglia per titolo e
 
 ### Notizie economiche e geopolitiche (ANSA)
 
-A **ogni scansione**, inclusi gli slot **08:15** e **10:30**, il Radar legge gratuitamente i feed RSS **ANSA Economia** e **ANSA Mondo**. Usa una selezione prudente di titoli relativi a shock economici e tensioni geopolitiche, senza ulteriori chiamate alle API AI. Notifica esclusivamente articoli recenti (ultime 14 ore), con titolo, fonte, orario e link, cercando di evitare duplicati di uno stesso evento.
+A **ogni scansione dei giorni feriali**, inclusi gli slot **08:15** e **10:30**, il Radar legge gratuitamente i feed RSS **ANSA Economia** e **ANSA Mondo**. Sabato e domenica esegue **solo il controllo notizie** alle **09:05**, **15:35** e **21:45 Europe/Rome**: niente Nikkei, azioni, bond, VSTOXX, petrolio o chiamate AI. Gli orari si adeguano al cambio fra ora legale e solare e prevedono recuperi in caso di ritardi GitHub. Usa una selezione prudente di titoli relativi a shock economici e tensioni geopolitiche, senza ulteriori chiamate alle API AI. Notifica esclusivamente articoli recenti (ultime 14 ore), con titolo, fonte, orario e link, cercando di evitare duplicati di uno stesso evento.
 
 Per non sovraccaricare Telegram, al massimo **1 notizia per scansione** e **2 al giorno**. La classificazione è una prima selezione automatica basata sui titoli: eventuali cause e conseguenze vanno verificate. Se un feed è irraggiungibile, il problema viene registrato nei log e le altre scansioni proseguono. Il monitoraggio delle notizie non modifica i pesi o i segnali macro esistenti.
 
@@ -121,4 +121,5 @@ L'uso delle API AI e della ricerca web e a consumo e non e incluso in ChatGPT Pl
 - radar.py: ricerca, verifica, alert e integrazione dei moduli
 - event_alerts.py: soglie dei bond e notizie ANSA RSS
 - macro_learning.py: score macro, memoria degli eventi, verifica degli esiti e statistiche
-- .github/workflows/market-radar.yml: esecuzione automatica
+- .github/workflows/market-radar.yml: esecuzione automatica feriale
+- .github/workflows/weekend-news.yml: controllo RSS sabato e domenica

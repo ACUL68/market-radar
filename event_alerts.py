@@ -144,6 +144,14 @@ def pending_news_alerts(state: dict[str, Any], now: datetime | None = None) -> l
     today = current.date().isoformat()
     sent = state.get("news_alerts", {})
     todays = [entry for key, entry in sent.items() if key.startswith(today + "|")]
+    # Manteniamo due giorni di storico: una notizia del venerdì non deve
+    # essere ritrasmessa sabato soltanto perché è cambiata la data.
+    oldest = (current.date() - timedelta(days=2)).isoformat()
+    recent_titles = [
+        str(entry.get("title", ""))
+        for key, entry in sent.items()
+        if key[:10] >= oldest and isinstance(entry, dict)
+    ]
     limit = min(NEWS_MAX_PER_SCAN, max(0, NEWS_MAX_PER_DAY - len(todays)))
     if limit == 0:
         return []
@@ -154,10 +162,11 @@ def pending_news_alerts(state: dict[str, Any], now: datetime | None = None) -> l
     news.sort(key=lambda item: (item["category"] == "GEOPOLITICA", item["published"]), reverse=True)
     result = []
     for item in news:
-        key = today + "|" + hashlib.sha256(item["link"].encode("utf-8")).hexdigest()[:18]
-        if key in sent:
+        digest = hashlib.sha256(item["link"].encode("utf-8")).hexdigest()[:18]
+        key = today + "|" + digest
+        if any(old_key.endswith("|" + digest) for old_key in sent):
             continue
-        titles = [str(x.get("title", "")) for x in todays] + [x["title"] for x in result]
+        titles = recent_titles + [x["title"] for x in result]
         if any(_similar_title(item["title"], title) for title in titles):
             continue
         item["key"] = key
@@ -177,7 +186,10 @@ def format_news_alert(news: dict[str, Any]) -> str:
 
 
 def mark_news_alert(state: dict[str, Any], news: dict[str, Any], now: datetime | None = None) -> None:
-    today = (now or datetime.now(ROME)).astimezone(ROME).date().isoformat()
+    current = (now or datetime.now(ROME)).astimezone(ROME).date()
+    oldest = (current - timedelta(days=2)).isoformat()
     sent = state.setdefault("news_alerts", {})
     sent[news["key"]] = {"title": news["title"]}
-    state["news_alerts"] = {key: value for key, value in sent.items() if key.startswith(today + "|")}
+    state["news_alerts"] = {
+        key: value for key, value in sent.items() if key[:10] >= oldest
+    }

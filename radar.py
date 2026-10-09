@@ -16,6 +16,10 @@ import yfinance as yf
 from openai import OpenAI
 
 from sensor_alerts import pending_sensor_alerts, mark_sensor_alert
+from event_alerts import (
+    pending_bond_alerts, mark_bond_alerts, pending_news_alerts,
+    format_news_alert, mark_news_alert,
+)
 
 from macro_learning import (
     EUROSTOXX_TICKER,
@@ -103,7 +107,7 @@ Devi fare QUATTRO cose:
 1) Stabilire la fase strutturale del mercato USA e del mercato europeo: bull, correction, bear oppure uncertain.
 2) Controllare Treasury USA 10Y, Bund 10Y, BTP 10Y, OAT Francia 10Y e Gilt UK 10Y.
    Per ciascuno restituisci il movimento di rendimento di OGGI in punti base come numero firmato:
-   positivo = rendimento in salita, negativo = rendimento in discesa. Se il dato non e verificabile usa null.
+   positivo = rendimento in salita, negativo = rendimento in discesa. Calcola il movimento rispetto alla CHIUSURA della seduta precedente dello stesso titolo, non rispetto al prezzo del bond.\n   Verifica data e fonte del rendimento: se il movimento giornaliero non e verificabile usa null.
 3) Controllare VSTOXX spot: livello attuale e variazione percentuale di OGGI come numero firmato.
 4) Controllare WTI/front-month crude oil: livello attuale e variazione percentuale di OGGI come numero firmato.
 
@@ -516,15 +520,25 @@ def format_alert(candidate: dict[str, Any], snap: MarketSnapshot, idx: MarketSna
     return body.strip()
 
 
-def send_bond_context(bonds: list[dict[str, Any]]) -> None:
-    important = [b for b in bonds if b.get("important")]
-    if not important:
+def _scan_news(state: dict[str, Any]) -> None:
+    """Controllo RSS leggero a ogni slot; eventuali errori non fermano il radar."""
+    try:
+        for news in pending_news_alerts(state):
+            send_message(format_news_alert(news))
+            mark_news_alert(state, news)
+            _save_state(state)
+    except Exception as exc:
+        print(f"News: controllo o invio non riuscito: {exc}")
+
+
+def send_bond_context(bonds: list[dict[str, Any]], state: dict[str, Any]) -> None:
+    """Tre soglie autonome sui decennali Bund, BTP e OAT; un solo messaggio per scansione."""
+    pending = pending_bond_alerts(state, bonds)
+    if not pending:
         return
-    lines = ["🟦 MARKET RADAR — BOND / TASSI"]
-    for b in important[:5]:
-        date_text = b.get("observation_date") or "data non indicata"
-        lines.append(f"\n{b.get('benchmark')}\nData: {date_text}\nMovimento: {b.get('move')}\nPerché conta: {b.get('why')}")
-    send_message("\n".join(lines))
+    send_message("🟦 MARKET RADAR — BOND / TASSI\n\n" + "\n\n".join(line for _, _, line in pending))
+    mark_bond_alerts(state, pending)
+    _save_state(state)
 
 
 
@@ -559,6 +573,7 @@ Restituisci SOLO JSON valido:
 
 
 def run_asia_early_warning() -> None:
+    _scan_news(_load_state())
     snap = market_snapshot(ASIA_WATCH["Nikkei 225"])
     if not snap:
         print("Nikkei gate: dati insufficienti")
@@ -709,6 +724,7 @@ def run_radar() -> None:
     # Prima aggiorniamo gli esiti dei segnali precedenti sull'EuroStoxx.
     # In questo modo il Radar costruisce memoria statistica senza nuovi cron dedicati.
     state = _load_state()
+    _scan_news(state)
     updated_outcomes = update_learning_outcomes(state)
     stats = update_learning_stats(state)
     if updated_outcomes:
@@ -771,8 +787,8 @@ def run_radar() -> None:
         )
         mark_macro_alert(state, macro_score)
 
-    # Il messaggio bond esistente resta attivo: e' il sensore principale.
-    send_bond_context(bonds)
+    # Alert bond a soglie fisse: 10 / 15 / 25 punti base, senza duplicati.
+    send_bond_context(bonds, state)
     _save_state(state)
 
     sent = _send_equity_alerts(candidates, state, regime, bonds)
@@ -790,6 +806,7 @@ def run_equity_rescan() -> None:
     """Seconda ricerca azionaria, senza rilanciare Nikkei, bond o altri sensori macro."""
     today = datetime.now(ROME).strftime("%Y-%m-%d")
     state = _load_state()
+    _scan_news(state)
     candidates = _discover_equity_candidates_luna(today)
     sent = _send_equity_alerts(
         candidates, state, regime={}, bonds=[], same_day_dedupe=True

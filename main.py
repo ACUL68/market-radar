@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from radar import run_asia_early_warning, run_radar
+from radar import run_asia_early_warning, run_equity_rescan, run_radar
 
 ROME = ZoneInfo("Europe/Rome")
 STATE_FILE = Path(os.getenv("RADAR_STATE_FILE", ".radar_state.json"))
@@ -16,6 +16,7 @@ STATE_FILE = Path(os.getenv("RADAR_STATE_FILE", ".radar_state.json"))
 SLOTS = {
     "08:15": "nikkei",
     "09:05": "radar",
+    "10:30": "equity_rescan",
     "15:35": "radar",
     "21:45": "radar",
 }
@@ -33,7 +34,13 @@ CRON_TARGETS = {
     "5 7 * * 1-5": "09:05",
     "5 8 * * 1-5": "09:05",
     "30 7 * * 1-5": "09:05",
-    "30 8 * * 1-5": "09:05",
+    "31 8 * * 1-5": "09:05",  # 09:31 CET: evita collisione con 10:30 CEST
+
+    # Nuova scansione azionaria mattutina: due varianti UTC + backup a 10:55.
+    "30 8 * * 1-5": "10:30",
+    "30 9 * * 1-5": "10:30",
+    "55 8 * * 1-5": "10:30",
+    "55 9 * * 1-5": "10:30",
 
     "35 13 * * 1-5": "15:35",
     "35 14 * * 1-5": "15:35",
@@ -95,6 +102,8 @@ def _mark_completed(now: datetime, slot: str) -> None:
 def _run_slot(slot: str) -> None:
     if SLOTS[slot] == "nikkei":
         run_asia_early_warning()
+    elif SLOTS[slot] == "equity_rescan":
+        run_equity_rescan()
     else:
         run_radar()
 

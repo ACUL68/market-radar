@@ -40,6 +40,22 @@ Il Radar calcola:
 
 Per default manda un alert macro solo da **60/100** in su. Il messaggio bond esistente resta attivo.
 
+### Alert bond: tre soglie, nessun rumore
+
+Nelle scansioni macro (**09:05, 15:35, 21:45 Europe/Rome**) i rendimenti decennali di **Bund, BTP e OAT** sono confrontati con la chiusura della seduta precedente:
+
+- 🟡 **±10 punti base:** preallarme
+- 🟠 **±15 punti base:** anomalia
+- 🔴 **±25 punti base:** movimento forte
+
+Il messaggio Telegram parte solo al primo superamento di una soglia per titolo e direzione nella stessa giornata; un passaggio a un livello più grave genera un nuovo alert. Movimenti non verificabili o con data diversa da quella odierna non producono allarmi. Treasury USA e Gilt UK restano nel macro-score già presente.
+
+### Notizie economiche e geopolitiche (ANSA)
+
+A **ogni scansione**, inclusi gli slot **08:15** e **10:30**, il Radar legge gratuitamente i feed RSS **ANSA Economia** e **ANSA Mondo**. Usa una selezione prudente di titoli relativi a shock economici e tensioni geopolitiche, senza ulteriori chiamate alle API AI. Notifica esclusivamente articoli recenti (ultime 14 ore), con titolo, fonte, orario e link, cercando di evitare duplicati di uno stesso evento.
+
+Per non sovraccaricare Telegram, al massimo **1 notizia per scansione** e **2 al giorno**. La classificazione è una prima selezione automatica basata sui titoli: eventuali cause e conseguenze vanno verificate. Se un feed è irraggiungibile, il problema viene registrato nei log e le altre scansioni proseguono. Il monitoraggio delle notizie non modifica i pesi o i segnali macro esistenti.
+
 ### Alert autonomi WTI e VSTOXX
 
 A ogni scansione macro programmata (**09:05, 15:35, 21:45 Europe/Rome**) il Radar controlla inoltre:
@@ -103,5 +119,6 @@ L'uso delle API AI e della ricerca web e a consumo e non e incluso in ChatGPT Pl
 
 - main.py: orari e avvio
 - radar.py: ricerca, verifica, alert e integrazione dei moduli
+- event_alerts.py: soglie dei bond e notizie ANSA RSS
 - macro_learning.py: score macro, memoria degli eventi, verifica degli esiti e statistiche
 - .github/workflows/market-radar.yml: esecuzione automatica

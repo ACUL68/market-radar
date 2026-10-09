@@ -64,12 +64,10 @@ jobs:
       - name: Run Market Radar
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           OPENAI_DISCOVERY_MODEL: gpt-6-luna
           OPENAI_ANALYSIS_MODEL: gpt-6-sol
-          GEMINI_DISCOVERY_MODEL: gemini-3.8-flash
           LARGE_CAP_MIN_MARKET_CAP: '10000000000'
           MIN_EQUITY_DROP_PCT: '-7.0'
           FORCE_SCAN: ${{ github.event_name == 'workflow_dispatch' && '1' || '0' }}

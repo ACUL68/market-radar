@@ -23,7 +23,7 @@ Il Radar cerca in USA ed Europa società:
 - liquide;
 - con ribasso giornaliero verificato di almeno **-7%**.
 
-Luna e Gemini lavorano come sentinelle indipendenti; Yahoo Finance verifica prezzo e market cap; l'analisi successiva cerca la causa concreta del crollo e manda su Telegram solo i casi che meritano studio.
+Luna cerca candidati tramite notizie finanziarie; Yahoo Finance verifica prezzo e market cap dei titoli individuati. Non è ancora presente una scansione sistematica dei prezzi di tutte le large cap: se Luna non scopre un titolo, la verifica numerica non lo esamina. L'analisi successiva cerca la causa concreta del crollo e invia su Telegram solo i casi che meritano studio.
 
 ### 3. Blocco macro EuroStoxx
 Il punteggio iniziale usa solo questi sensori:
@@ -86,7 +86,6 @@ Ogni slot ha un tentativo di recupero +25 minuti nel workflow GitHub.
 In Settings -> Secrets and variables -> Actions:
 
 - OPENAI_API_KEY
-- GEMINI_API_KEY
 - TELEGRAM_BOT_TOKEN
 - TELEGRAM_CHAT_ID
 

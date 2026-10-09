@@ -4,7 +4,6 @@ import json
 import os
 import re
 import time
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -35,7 +34,6 @@ from macro_learning import (
 
 DISCOVERY_MODEL = os.getenv("OPENAI_DISCOVERY_MODEL", "gpt-6-luna")
 ANALYSIS_MODEL = os.getenv("OPENAI_ANALYSIS_MODEL", "gpt-6-sol")
-GEMINI_DISCOVERY_MODEL = os.getenv("GEMINI_DISCOVERY_MODEL", "gemini-3.8-flash")
 STATE_FILE = Path(os.getenv("RADAR_STATE_FILE", ".radar_state.json"))
 LARGE_CAP_MIN_MARKET_CAP = float(os.getenv("LARGE_CAP_MIN_MARKET_CAP", "10000000000"))
 MIN_EQUITY_DROP_PCT = float(os.getenv("MIN_EQUITY_DROP_PCT", "-7.0"))
@@ -94,44 +92,6 @@ def _ask_web(model: str, prompt: str) -> dict[str, Any]:
         input=prompt,
     )
     return _extract_json(response.output_text)
-
-def _ask_gemini_web(prompt: str) -> dict[str, Any]:
-    api_key = os.getenv("GEMINI_API_KEY", "").strip()
-    if not api_key:
-        raise RuntimeError("GEMINI_API_KEY non configurata")
-
-    url = "https://generativelanguage.googleapis.com/v1beta/interactions"
-    payload = {
-        "model": GEMINI_DISCOVERY_MODEL,
-        "input": prompt,
-        "tools": [{"type": "google_search"}],
-        "store": False,
-    }
-    response = requests.post(
-        url,
-        headers={
-            "x-goog-api-key": api_key,
-            "Content-Type": "application/json",
-        },
-        json=payload,
-        timeout=120,
-    )
-    response.raise_for_status()
-    data = response.json()
-
-    output_parts: list[str] = []
-    for step in data.get("steps") or []:
-        if step.get("type") != "model_output":
-            continue
-        for block in step.get("content") or []:
-            if block.get("type") == "text" and block.get("text"):
-                output_parts.append(str(block["text"]))
-
-    if not output_parts:
-        raise RuntimeError(f"Gemini: risposta senza testo (status={data.get('status', 'unknown')})")
-
-    return _extract_json("\n".join(output_parts))
-
 
 def _discover_context(today: str) -> dict[str, Any]:
     prompt = f"""
@@ -299,178 +259,10 @@ Restituisci SOLO JSON valido:
     return candidates
 
 
-def _discover_equity_candidates_gemini(today: str) -> list[dict[str, Any]]:
-    if not os.getenv("GEMINI_API_KEY", "").strip():
-        print("Discovery Gemini non disponibile: GEMINI_API_KEY non configurata")
-        return []
-
-    searches = [
-        (
-            "USA",
-            "Cerca con Google Search SOLO tra società USA large cap, con capitalizzazione almeno circa 10 miliardi e buona liquidità. "
-            "Individua TUTTI i titoli importanti che OGGI stanno crollando o hanno un ribasso chiaramente anomalo. "
-            "Controlla in particolare S&P 500, Nasdaq 100 e le principali large cap USA. "
-            "Includi anche crolli legati ad acquisizioni/M&A, nuovo debito o diluizione, trimestrali, profit warning, "
-            "tagli di guidance, downgrade, problemi regolatori/legali e altre notizie societarie specifiche."
-        ),
-        (
-            "EUROPA",
-            "Cerca con Google Search SOLO tra società europee large cap, con capitalizzazione almeno circa 10 miliardi e buona liquidità. "
-            "Individua TUTTI i titoli importanti che OGGI stanno crollando o hanno un ribasso chiaramente anomalo. "
-            "Controlla i principali mercati e indici europei, inclusi DAX, CAC 40, FTSE 100, FTSE MIB, AEX, IBEX e SMI. "
-            "Includi anche crolli legati ad acquisizioni/M&A, nuovo debito o diluizione, trimestrali, profit warning, "
-            "tagli di guidance, downgrade, problemi regolatori/legali e altre notizie societarie specifiche."
-        ),
-    ]
-
-    merged: dict[str, dict[str, Any]] = {}
-
-    for label, focus in searches:
-        prompt = f"""
-Sei il secondo motore INDIPENDENTE di scoperta azionaria di MARKET RADAR. Oggi è {today}, ora Europe/Rome.
-Usa Google Search e fonti finanziarie affidabili PUBBLICATE O AGGIORNATE OGGI.
-Non usare né assumere i risultati trovati da altri motori: esegui la tua ricerca in modo indipendente.
-
-{focus}
-
-Regole:
-- NON scegliere una shortlist arbitraria e NON fermarti ai primi quattro risultati.
-- Riporta tutti i casi rilevanti che trovi in questa ricerca.
-- Considera SOLO large cap: capitalizzazione indicativamente almeno 10 miliardi; escludi micro-cap, mid-cap piccole, penny stock e titoli illiquidi.
-- Cerca ribassi di OGGI pari o superiori al 7% circa; il programma verificherà poi numericamente prezzo e market cap.
-- Il movimento deve essere di OGGI. Una notizia vecchia non basta.
-- Non serve decidere se il titolo sia da comprare: questa fase deve soltanto TROVARE l'anomalia.
-- Usa, quando possibile, ticker compatibili con Yahoo Finance.
-
-Restituisci SOLO JSON valido:
-{{
-  "equity_candidates": [
-    {{
-      "company": "...",
-      "ticker": "...",
-      "region": "USA|EUROPE",
-      "sector": "...",
-      "index_reference": "Nasdaq 100|S&P 500|Euro Stoxx 50|altro",
-      "reported_change_pct": -8.4,
-      "why_candidate": "evento/anomalia osservata oggi"
-    }}
-  ]
-}}
-"""
-
-        result: dict[str, Any] | None = None
-        for attempt in range(2):
-            try:
-                result = _ask_gemini_web(prompt)
-                break
-            except Exception as exc:
-                message = str(exc)
-                if attempt == 0 and ("429" in message or "rate limit" in message.lower()):
-                    print(f"Gemini {label}: rate limit, nuovo tentativo tra 10 secondi")
-                    time.sleep(10)
-                    continue
-                print(f"Gemini {label} non disponibile: {exc}")
-
-        if not result:
-            continue
-
-        found = result.get("equity_candidates") or []
-        print(f"Gemini {label}: {len(found)} candidati")
-
-        for candidate in found:
-            ticker = str(candidate.get("ticker", "")).strip()
-            if not ticker:
-                continue
-            key = ticker.upper()
-            if key not in merged:
-                merged[key] = candidate
-                continue
-
-            old_reason = str(merged[key].get("why_candidate", "")).strip()
-            new_reason = str(candidate.get("why_candidate", "")).strip()
-            if new_reason and new_reason not in old_reason:
-                merged[key]["why_candidate"] = (
-                    f"{old_reason} | {new_reason}" if old_reason else new_reason
-                )
-
-    candidates = list(merged.values())
-
-    def _reported_drop(item: dict[str, Any]) -> float:
-        try:
-            return float(item.get("reported_change_pct", 0.0))
-        except (TypeError, ValueError):
-            return 0.0
-
-    candidates.sort(key=_reported_drop)
-    print(f"Discovery Gemini totale: {len(candidates)} candidati unici")
-    return candidates
-
-
-def _discover_equity_candidates(today: str) -> list[dict[str, Any]]:
-    # Luna e Gemini lavorano come due sentinelle indipendenti.
-    # Usiamo l'UNIONE dei risultati: basta che uno dei due trovi un titolo
-    # perché venga passato alle verifiche numeriche successive.
-    provider_results: dict[str, list[dict[str, Any]]] = {}
-
-    with ThreadPoolExecutor(max_workers=2) as executor:
-        futures = {
-            "Luna": executor.submit(_discover_equity_candidates_luna, today),
-            "Gemini": executor.submit(_discover_equity_candidates_gemini, today),
-        }
-        for provider, future in futures.items():
-            try:
-                provider_results[provider] = future.result()
-            except Exception as exc:
-                print(f"Discovery {provider} non disponibile: {exc}")
-                provider_results[provider] = []
-
-    merged: dict[str, dict[str, Any]] = {}
-    found_by: dict[str, set[str]] = {}
-
-    for provider, candidates in provider_results.items():
-        for candidate in candidates:
-            ticker = str(candidate.get("ticker", "")).strip()
-            if not ticker:
-                continue
-            key = ticker.upper()
-            found_by.setdefault(key, set()).add(provider)
-
-            if key not in merged:
-                merged[key] = candidate
-                continue
-
-            old_reason = str(merged[key].get("why_candidate", "")).strip()
-            new_reason = str(candidate.get("why_candidate", "")).strip()
-            if new_reason and new_reason not in old_reason:
-                merged[key]["why_candidate"] = (
-                    f"{old_reason} | {new_reason}" if old_reason else new_reason
-                )
-
-    candidates = list(merged.values())
-
-    def _reported_drop(item: dict[str, Any]) -> float:
-        try:
-            return float(item.get("reported_change_pct", 0.0))
-        except (TypeError, ValueError):
-            return 0.0
-
-    candidates.sort(key=_reported_drop)
-    print(f"Discovery combinata Luna+Gemini: {len(candidates)} candidati unici")
-    if candidates:
-        labels = []
-        for candidate in candidates:
-            ticker = str(candidate.get("ticker", "?")).upper()
-            providers = "+".join(sorted(found_by.get(ticker, set())))
-            labels.append(f"{ticker}[{providers}]")
-        print("Ticker scoperti: " + ", ".join(labels))
-
-    return candidates
-
-
 def discover_market() -> dict[str, Any]:
     today = datetime.now(ROME).strftime("%Y-%m-%d")
     context = _discover_context(today)
-    context["equity_candidates"] = _discover_equity_candidates(today)
+    context["equity_candidates"] = _discover_equity_candidates_luna(today)
     return context
 
 def market_snapshot(ticker: str) -> MarketSnapshot | None:

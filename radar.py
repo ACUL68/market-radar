@@ -520,15 +520,23 @@ def format_alert(candidate: dict[str, Any], snap: MarketSnapshot, idx: MarketSna
     return body.strip()
 
 
-def _scan_news(state: dict[str, Any]) -> None:
-    """Controllo RSS leggero a ogni slot; eventuali errori non fermano il radar."""
+def _scan_news(state: dict[str, Any], *, strict: bool = False) -> None:
+    """Controllo RSS leggero a ogni slot, senza chiamate AI aggiuntive."""
     try:
         for news in pending_news_alerts(state):
             send_message(format_news_alert(news))
             mark_news_alert(state, news)
             _save_state(state)
     except Exception as exc:
+        if strict:
+            raise  # Weekend: ritenta al cron di recupero se Telegram fallisce.
         print(f"News: controllo o invio non riuscito: {exc}")
+
+
+def run_weekend_news() -> None:
+    """Sabato/domenica: solo feed ANSA Economia e Mondo; nessun dato di mercato."""
+    print("Weekend: controllo solo notizie economiche e geopolitiche.")
+    _scan_news(_load_state(), strict=True)
 
 
 def send_bond_context(bonds: list[dict[str, Any]], state: dict[str, Any]) -> None:

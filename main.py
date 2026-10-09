@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from radar import run_asia_early_warning, run_equity_rescan, run_radar
+from radar import run_asia_early_warning, run_equity_rescan, run_radar, run_weekend_news
 
 ROME = ZoneInfo("Europe/Rome")
 STATE_FILE = Path(os.getenv("RADAR_STATE_FILE", ".radar_state.json"))
@@ -20,6 +20,10 @@ SLOTS = {
     "15:35": "radar",
     "21:45": "radar",
 }
+
+# Sabato e domenica: solo notizie RSS alle 09:05, 15:35 e 21:45.
+# Nessun controllo di Nikkei, bond, azioni, VSTOXX o petrolio.
+WEEKEND_NEWS_SLOTS = {"09:05", "15:35", "21:45"}
 
 # Ogni slot ha due tentativi GitHub: principale e recupero +25 minuti.
 # Per ora legale/solare sono presenti entrambe le varianti UTC.
@@ -51,6 +55,22 @@ CRON_TARGETS = {
     "45 20 * * 1-5": "21:45",
     "10 20 * * 1-5": "21:45",
     "10 21 * * 1-5": "21:45",
+
+    # Weekend: 3 scansioni notizie ANSA, con varianti CET/CEST e recuperi.
+    "5 7 * * 0,6": "09:05",
+    "5 8 * * 0,6": "09:05",
+    "30 7 * * 0,6": "09:05",
+    "31 8 * * 0,6": "09:05",
+
+    "35 13 * * 0,6": "15:35",
+    "35 14 * * 0,6": "15:35",
+    "0 14 * * 0,6": "15:35",
+    "0 15 * * 0,6": "15:35",
+
+    "45 19 * * 0,6": "21:45",
+    "45 20 * * 0,6": "21:45",
+    "10 20 * * 0,6": "21:45",
+    "10 21 * * 0,6": "21:45",
 }
 
 
@@ -109,7 +129,9 @@ def _run_slot(slot: str) -> None:
 
 
 def _manual_run(now: datetime) -> None:
-    if (now.hour, now.minute) < (9, 0):
+    if now.weekday() >= 5:
+        run_weekend_news()
+    elif (now.hour, now.minute) < (9, 0):
         run_asia_early_warning()
     else:
         run_radar()
@@ -122,15 +144,15 @@ if __name__ == "__main__":
         _manual_run(now)
         raise SystemExit(0)
 
-    if now.weekday() >= 5:
-        print("Weekend: nessuna scansione prevista.")
-        raise SystemExit(0)
-
     trigger = os.getenv("TRIGGER_SCHEDULE", "").strip()
     slot = CRON_TARGETS.get(trigger)
 
     if not slot:
         print(f"Trigger non riconosciuto: {trigger!r}. Nessuna scansione.")
+        raise SystemExit(0)
+
+    if now.weekday() >= 5 and slot not in WEEKEND_NEWS_SLOTS:
+        print(f"Weekend: slot {slot} non previsto per le notizie.")
         raise SystemExit(0)
 
     target = _slot_time(now, slot)
@@ -149,7 +171,10 @@ if __name__ == "__main__":
         raise SystemExit(0)
 
     print(f"Eseguo slot {slot} alle {now.strftime('%H:%M:%S')} Europe/Rome.")
-    _run_slot(slot)
+    if now.weekday() >= 5:
+        run_weekend_news()
+    else:
+        _run_slot(slot)
 
     # Arriviamo qui solo se il programma non ha generato un errore.
     # Anche 'nessun segnale trovato' è una scansione completata correttamente.

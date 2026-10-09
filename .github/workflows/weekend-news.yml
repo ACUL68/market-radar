@@ -1,0 +1,18 @@
+name: Weekend News
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '5 7 * * 0,6'
+    - cron: '5 8 * * 0,6'
+jobs:
+  news:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -r requirements.txt
+      - run: python main.py
+        env:
+          FORCE_SCAN: '1'

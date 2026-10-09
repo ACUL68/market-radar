@@ -12,11 +12,18 @@ on:
     - cron: '40 6 * * 1-5'
     - cron: '40 7 * * 1-5'
 
-    # 09:05 Europa + recupero 09:30
+    # 09:05 Europa + recupero 09:30 CEST / 09:31 CET
     - cron: '5 7 * * 1-5'
     - cron: '5 8 * * 1-5'
     - cron: '30 7 * * 1-5'
+    - cron: '31 8 * * 1-5' # 09:31 CET, recupero anziché 09:30 per evitare sovrapposizioni
+
+    # 10:30 Europa: seconda ricerca azionaria indipendente + recupero 10:55.
+    # 08:30 UTC = 10:30 CEST; 09:30 UTC = 10:30 CET.
     - cron: '30 8 * * 1-5'
+    - cron: '30 9 * * 1-5'
+    - cron: '55 8 * * 1-5'
+    - cron: '55 9 * * 1-5'
 
     # 15:35 USA + recupero 16:00
     - cron: '35 13 * * 1-5'

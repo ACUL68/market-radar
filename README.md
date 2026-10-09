@@ -23,7 +23,7 @@ Il Radar cerca in USA ed Europa società:
 - liquide;
 - con ribasso giornaliero verificato di almeno **-7%**.
 
-Luna cerca candidati tramite notizie finanziarie; Yahoo Finance verifica prezzo e market cap dei titoli individuati. Non è ancora presente una scansione sistematica dei prezzi di tutte le large cap: se Luna non scopre un titolo, la verifica numerica non lo esamina. L'analisi successiva cerca la causa concreta del crollo e invia su Telegram solo i casi che meritano studio.
+Luna cerca candidati tramite notizie finanziarie alle 09:05 e ripete una ricerca indipendente alle 10:30 (Europe/Rome), per intercettare notizie emerse più tardi. La seconda ricerca evita di inviare nuovamente gli avvisi azionari già trasmessi nella stessa giornata. Yahoo Finance verifica prezzo e market cap dei titoli individuati. Non è ancora presente una scansione sistematica dei prezzi di tutte le large cap: se Luna non scopre un titolo, la verifica numerica non lo esamina. L'analisi successiva cerca la causa concreta del crollo e invia su Telegram solo i casi che meritano studio.
 
 ### 3. Blocco macro EuroStoxx
 Il punteggio iniziale usa solo questi sensori:
@@ -76,10 +76,11 @@ Lo storico produce statistiche per fascia di score e per sensore. Dopo almeno 20
 Slot principali Europe/Rome:
 - **08:15** Nikkei
 - **09:05** Radar Europa
+- **10:30** seconda ricerca **solo azioni**, senza ripetere controlli macro/bond; recupero 10:55
 - **15:35** Radar USA/pomeriggio
 - **21:45** controllo finale
 
-Ogni slot ha un tentativo di recupero +25 minuti nel workflow GitHub.
+Ogni slot ha un tentativo di recupero +25 minuti nel workflow GitHub (per le 09:05 il recupero in ora solare avviene alle 09:31, anziché alle 09:30, per evitare una collisione UTC).
 
 ## Segreti GitHub necessari
 

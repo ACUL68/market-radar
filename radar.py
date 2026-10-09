@@ -622,6 +622,89 @@ def run_asia_early_warning() -> None:
     mark_alert(key, nikkei, state)
     _save_state(state)
 
+def _was_alerted_today(ticker: str, state: dict[str, Any]) -> bool:
+    """La seconda scansione non rimanda azioni già segnalate nella giornata italiana."""
+    old = state.get("alerts", {}).get(ticker)
+    if not old:
+        return False
+    try:
+        sent_at = datetime.fromisoformat(str(old["time"]))
+        if sent_at.tzinfo is None:
+            sent_at = sent_at.replace(tzinfo=timezone.utc)
+        return sent_at.astimezone(ROME).date() == datetime.now(ROME).date()
+    except (KeyError, TypeError, ValueError):
+        return False
+
+
+def _send_equity_alerts(
+    candidates: list[dict[str, Any]],
+    state: dict[str, Any],
+    regime: dict[str, Any],
+    bonds: list[dict[str, Any]],
+    *,
+    same_day_dedupe: bool = False,
+) -> int:
+    sent = 0
+
+    for candidate in candidates:
+        ticker = str(candidate.get("ticker", "")).strip()
+        if not ticker:
+            continue
+        if same_day_dedupe and _was_alerted_today(ticker, state):
+            print(f"Seconda ricerca: {ticker} già segnalato oggi, nessun duplicato")
+            continue
+        snap = market_snapshot(ticker)
+        if not snap:
+            print(f"Skip {ticker}: quotazione non verificabile")
+            continue
+        if not has_recent_market_data(snap):
+            print(f"Skip {ticker}: ticker non attivo o dati Yahoo non recenti")
+            continue
+
+        market_cap, market_cap_currency = market_cap_yahoo(ticker)
+        if market_cap is None:
+            print(f"Skip {ticker}: market cap Yahoo non verificabile")
+            continue
+        if market_cap < LARGE_CAP_MIN_MARKET_CAP:
+            print(
+                f"Skip {ticker}: market cap {market_cap / 1_000_000_000:.2f} mld "
+                f"{market_cap_currency or ''} < 10 mld"
+            )
+            continue
+
+        # Filtro duro richiesto: solo large cap con crollo verificato di almeno il 7% oggi.
+        if snap.change_pct > MIN_EQUITY_DROP_PCT:
+            print(
+                f"Skip {ticker}: ribasso verificato {snap.change_pct:+.2f}% "
+                f"(serve <= {MIN_EQUITY_DROP_PCT:.2f}%)"
+            )
+            continue
+
+        print(
+            f"PASS {ticker}: {snap.change_pct:+.2f}% | "
+            f"market cap {market_cap / 1_000_000_000:.2f} mld {market_cap_currency or ''}"
+        )
+
+        idx_ticker = index_for_candidate(candidate)
+        idx = market_snapshot(idx_ticker)
+
+        analysis = analyze_candidate(candidate, snap, idx, regime, bonds)
+        if not analysis.get("interesting_to_study"):
+            print(f"Scartato dopo analisi: {ticker}")
+            continue
+        if should_suppress(ticker, snap.change_pct, state):
+            print(f"Alert duplicato soppresso: {ticker}")
+            continue
+
+        chart = make_chart(snap, str(candidate.get("company", ticker)))
+        send_chart(chart, f"{candidate.get('company')} ({ticker}) — grafico 6 mesi")
+        send_message(format_alert(candidate, snap, idx, analysis, regime))
+        mark_alert(ticker, snap.change_pct, state)
+        sent += 1
+
+    return sent
+
+
 def run_radar() -> None:
     # Prima aggiorniamo gli esiti dei segnali precedenti sull'EuroStoxx.
     # In questo modo il Radar costruisce memoria statistica senza nuovi cron dedicati.
@@ -692,60 +775,7 @@ def run_radar() -> None:
     send_bond_context(bonds)
     _save_state(state)
 
-    sent = 0
-
-    for candidate in candidates:
-        ticker = str(candidate.get("ticker", "")).strip()
-        if not ticker:
-            continue
-        snap = market_snapshot(ticker)
-        if not snap:
-            print(f"Skip {ticker}: quotazione non verificabile")
-            continue
-        if not has_recent_market_data(snap):
-            print(f"Skip {ticker}: ticker non attivo o dati Yahoo non recenti")
-            continue
-
-        market_cap, market_cap_currency = market_cap_yahoo(ticker)
-        if market_cap is None:
-            print(f"Skip {ticker}: market cap Yahoo non verificabile")
-            continue
-        if market_cap < LARGE_CAP_MIN_MARKET_CAP:
-            print(
-                f"Skip {ticker}: market cap {market_cap / 1_000_000_000:.2f} mld "
-                f"{market_cap_currency or ''} < 10 mld"
-            )
-            continue
-
-        # Filtro duro richiesto: solo large cap con crollo verificato di almeno il 7% oggi.
-        if snap.change_pct > MIN_EQUITY_DROP_PCT:
-            print(
-                f"Skip {ticker}: ribasso verificato {snap.change_pct:+.2f}% "
-                f"(serve <= {MIN_EQUITY_DROP_PCT:.2f}%)"
-            )
-            continue
-
-        print(
-            f"PASS {ticker}: {snap.change_pct:+.2f}% | "
-            f"market cap {market_cap / 1_000_000_000:.2f} mld {market_cap_currency or ''}"
-        )
-
-        idx_ticker = index_for_candidate(candidate)
-        idx = market_snapshot(idx_ticker)
-
-        analysis = analyze_candidate(candidate, snap, idx, regime, bonds)
-        if not analysis.get("interesting_to_study"):
-            print(f"Scartato dopo analisi: {ticker}")
-            continue
-        if should_suppress(ticker, snap.change_pct, state):
-            print(f"Alert duplicato soppresso: {ticker}")
-            continue
-
-        chart = make_chart(snap, str(candidate.get("company", ticker)))
-        send_chart(chart, f"{candidate.get('company')} ({ticker}) — grafico 6 mesi")
-        send_message(format_alert(candidate, snap, idx, analysis, regime))
-        mark_alert(ticker, snap.change_pct, state)
-        sent += 1
+    sent = _send_equity_alerts(candidates, state, regime, bonds)
 
     # Il numero di crolli large-cap verificati viene registrato come feature,
     # ma non modifica ancora il macro-score: prima raccogliamo statistica reale.
@@ -754,3 +784,18 @@ def run_radar() -> None:
     _save_state(state)
     print(f"Market Radar completato. Alert azionari inviati: {sent}")
 
+
+
+def run_equity_rescan() -> None:
+    """Seconda ricerca azionaria, senza rilanciare Nikkei, bond o altri sensori macro."""
+    today = datetime.now(ROME).strftime("%Y-%m-%d")
+    state = _load_state()
+    candidates = _discover_equity_candidates_luna(today)
+    sent = _send_equity_alerts(
+        candidates, state, regime={}, bonds=[], same_day_dedupe=True
+    )
+    _save_state(state)
+    print(
+        f"Seconda ricerca azionaria 10:30 completata. "
+        f"Candidati trovati: {len(candidates)}; nuovi alert inviati: {sent}"
+    )

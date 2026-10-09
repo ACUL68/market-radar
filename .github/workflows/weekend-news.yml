@@ -1,18 +1,55 @@
-name: Weekend News
+name: Market Radar — Weekend News
+
 on:
-  workflow_dispatch:
   schedule:
+    # Controllo alle 09:05, 15:35, 21:45 italiane, CET/CEST.
+    # Backup circa 25 minuti dopo ciascuno slot.
     - cron: '5 7 * * 0,6'
     - cron: '5 8 * * 0,6'
+    - cron: '30 7 * * 0,6'
+    - cron: '31 8 * * 0,6'
+    - cron: '35 13 * * 0,6'
+    - cron: '35 14 * * 0,6'
+    - cron: '0 14 * * 0,6'
+    - cron: '0 15 * * 0,6'
+    - cron: '45 19 * * 0,6'
+    - cron: '45 20 * * 0,6'
+    - cron: '10 20 * * 0,6'
+    - cron: '10 21 * * 0,6'
+
+concurrency:
+  group: market-radar
+  cancel-in-progress: false
+
 jobs:
-  news:
+  weekend-news:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Python
+        uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - run: pip install -r requirements.txt
-      - run: python main.py
+          cache: pip
+
+      - name: Restore radar state
+        uses: actions/cache@v4
+        with:
+          path: .radar_state.json
+          key: market-radar-state-${{ github.run_id }}
+          restore-keys: |
+            market-radar-state-
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run weekend RSS scan only
         env:
-          FORCE_SCAN: '1'
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TRIGGER_SCHEDULE: ${{ github.event.schedule }}
+        run: python main.py

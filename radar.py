@@ -37,7 +37,7 @@ from macro_learning import (
 )
 
 DISCOVERY_MODEL = os.getenv("OPENAI_DISCOVERY_MODEL", "gpt-6-luna")
-ANALYSIS_MODEL = os.getenv("OPENAI_ANALYSIS_MODEL", "gpt-6-sol")
+ANALYSIS_MODEL = os.getenv("OPENAI_ANALYSIS_MODEL", "gpt-6-luna")
 STATE_FILE = Path(os.getenv("RADAR_STATE_FILE", ".radar_state.json"))
 LARGE_CAP_MIN_MARKET_CAP = float(os.getenv("LARGE_CAP_MIN_MARKET_CAP", "10000000000"))
 MIN_EQUITY_DROP_PCT = float(os.getenv("MIN_EQUITY_DROP_PCT", "-7.0"))

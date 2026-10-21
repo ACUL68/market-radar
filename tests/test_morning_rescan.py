@@ -32,7 +32,8 @@ def test_clock_mapping_in_summer_and_winter():
     assert winter >= main._slot_time(winter, "10:30")
 
 
-def test_second_scan_does_not_launch_macro_or_bonds():
+def test_second_scan_does_not_launch_macro_or_bonds(monkeypatch):
+    monkeypatch.setenv("RADAR_MODE", "legacy")
     candidates = [{"ticker": "DTE.DE", "reported_change_pct": -7.5}]
     state = {"alerts": {}}
     with (

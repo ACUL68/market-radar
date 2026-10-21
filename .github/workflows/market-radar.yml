@@ -58,7 +58,7 @@ jobs:
           cache: pip
 
       - name: Restore radar state
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: .radar_state.json
           key: market-radar-state-${{ github.run_id }}
@@ -70,6 +70,9 @@ jobs:
 
       - name: Run Market Radar
         env:
+          RADAR_MODE: eurostoxx
+          RADAR_AI_MAX_DAILY_CALLS: '2'
+          RADAR_AI_MAX_MONTHLY_CALLS: '30'
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
@@ -80,3 +83,10 @@ jobs:
           FORCE_SCAN: ${{ github.event_name == 'workflow_dispatch' && '1' || '0' }}
           TRIGGER_SCHEDULE: ${{ github.event.schedule }}
         run: python main.py
+
+      - name: Persist radar state even after an error
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: .radar_state.json
+          key: market-radar-state-${{ github.run_id }}

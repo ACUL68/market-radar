@@ -581,6 +581,9 @@ Restituisci SOLO JSON valido:
 
 
 def run_asia_early_warning() -> None:
+    if os.getenv("RADAR_MODE", "eurostoxx") == "eurostoxx":
+        from euro_radar import run
+        return run(asia_only=True)
     _scan_news(_load_state())
     snap = market_snapshot(ASIA_WATCH["Nikkei 225"])
     if not snap:
@@ -711,6 +714,8 @@ def _send_equity_alerts(
         idx_ticker = index_for_candidate(candidate)
         idx = market_snapshot(idx_ticker)
 
+        if should_suppress(ticker, snap.change_pct, state):
+            continue
         analysis = analyze_candidate(candidate, snap, idx, regime, bonds)
         if not analysis.get("interesting_to_study"):
             print(f"Scartato dopo analisi: {ticker}")
@@ -729,6 +734,9 @@ def _send_equity_alerts(
 
 
 def run_radar() -> None:
+    if os.getenv("RADAR_MODE", "eurostoxx") == "eurostoxx":
+        from euro_radar import run
+        return run(asia_only=False)
     # Prima aggiorniamo gli esiti dei segnali precedenti sull'EuroStoxx.
     # In questo modo il Radar costruisce memoria statistica senza nuovi cron dedicati.
     state = _load_state()
@@ -811,6 +819,9 @@ def run_radar() -> None:
 
 
 def run_equity_rescan() -> None:
+    if os.getenv("RADAR_MODE", "eurostoxx") == "eurostoxx":
+        from euro_radar import run
+        return run(asia_only=False)
     """Seconda ricerca azionaria, senza rilanciare Nikkei, bond o altri sensori macro."""
     today = datetime.now(ROME).strftime("%Y-%m-%d")
     state = _load_state()
